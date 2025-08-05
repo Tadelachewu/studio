@@ -1,24 +1,29 @@
 import { getMenuText } from '@/lib/menu';
 import { mockBanks, MockDatabase } from '@/lib/mock-data';
 import { sessionManager } from '@/lib/session';
+import { normalizePhoneNumber } from '@/lib/utils';
 
 export function processUssdRequest(
   sessionId: string,
   phoneNumber: string,
   userInput: string
 ): string {
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+
   let session = sessionManager.getSession(sessionId);
   let responsePrefix = 'CON';
   let responseMessage = '';
 
   if (!session) {
-    session = sessionManager.createSession(sessionId, phoneNumber);
-    const user = MockDatabase.getUserByPhoneNumber(phoneNumber);
-    if (!user || !user.isVerified) {
-        responsePrefix = 'END';
-        responseMessage = 'Your account is not verified. Please contact customer support.';
-        return `${responsePrefix} ${responseMessage}`;
-    }
+    session = sessionManager.createSession(sessionId, normalizedPhone);
+  }
+
+  const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
+  if (!user || !user.isVerified) {
+    responsePrefix = 'END';
+    responseMessage =
+      'Your account is not verified. Please contact customer support.';
+    return `${responsePrefix} ${responseMessage}`;
   }
 
   let nextSession = { ...session };
@@ -29,7 +34,7 @@ export function processUssdRequest(
 
   switch (session.screen) {
     case 'PIN':
-      const pin = MockDatabase.getPin(phoneNumber);
+      const pin = MockDatabase.getPin(normalizedPhone);
       if (pin && userInput.length === 4 && /^\d+$/.test(userInput)) {
         if (userInput === pin) {
           nextSession.authenticated = true;
@@ -61,12 +66,14 @@ export function processUssdRequest(
           break;
         case '3':
           nextSession.screen = 'REPAY_SELECT_LOAN';
-          nextSession.repayLoans = MockDatabase.getLoans(phoneNumber).filter(
+          nextSession.repayLoans = MockDatabase.getLoans(
+            normalizedPhone
+          ).filter(
             (l) => l.status === 'Active' && l.amount + l.interest - l.repaid > 0
           );
           break;
         case '4':
-          const balance = MockDatabase.getBalance(phoneNumber);
+          const balance = MockDatabase.getBalance(normalizedPhone);
           responseMessage = `Your account balance is: ${balance.toFixed(2)}`;
           responsePrefix = 'END';
           sessionManager.deleteSession(sessionId);
@@ -174,7 +181,7 @@ export function processUssdRequest(
           .find((b) => b.name === selectedBankName)
           ?.loanProducts.find((p) => p.name === selectedProductName);
         
-        const existingLoans = MockDatabase.getLoans(phoneNumber);
+        const existingLoans = MockDatabase.getLoans(normalizedPhone);
         const hasActiveLoanFromSameBank = existingLoans.some(
           (loan) => loan.bankName === selectedBankName && loan.status === 'Active'
         );
@@ -188,7 +195,7 @@ export function processUssdRequest(
 
         if (selectedBankName && selectedProductName && loanAmount && product) {
           MockDatabase.addLoan(
-            phoneNumber,
+            normalizedPhone,
             selectedBankName,
             selectedProductName,
             loanAmount,
@@ -214,7 +221,7 @@ export function processUssdRequest(
         break;
       }
       if (userInput === '9') {
-        const userLoans = MockDatabase.getLoans(phoneNumber);
+        const userLoans = MockDatabase.getLoans(normalizedPhone);
         const pageSize = 2;
         if ((session.loanStatusPage + 1) * pageSize < userLoans.length) {
           nextSession.loanStatusPage = session.loanStatusPage + 1;
@@ -262,7 +269,7 @@ export function processUssdRequest(
           repayAmount > 0 &&
           repayAmount <= outstanding
         ) {
-          MockDatabase.repayLoan(phoneNumber, repayLoan.id, repayAmount);
+          MockDatabase.repayLoan(normalizedPhone, repayLoan.id, repayAmount);
           responseMessage = `Repayment of ${repayAmount.toFixed(
             2
           )} successful.`;
@@ -282,7 +289,7 @@ export function processUssdRequest(
         break;
       }
       if (userInput.length === 4 && /^\d+$/.test(userInput)) {
-        MockDatabase.setPin(phoneNumber, userInput);
+        MockDatabase.setPin(normalizedPhone, userInput);
         responseMessage = 'PIN changed successfully.';
         responsePrefix = 'END';
         sessionManager.deleteSession(sessionId);
