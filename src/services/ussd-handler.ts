@@ -30,8 +30,8 @@ export function processUssdRequest(
   switch (session.screen) {
     case 'PIN':
       const pin = MockDatabase.getPin(phoneNumber);
-      if (userInput.length === 4 && /^\d+$/.test(userInput)) {
-        if (pin && userInput === pin) {
+      if (pin && userInput.length === 4 && /^\d+$/.test(userInput)) {
+        if (userInput === pin) {
           nextSession.authenticated = true;
           nextSession.screen = 'HOME';
           nextSession.pinAttempts = 0;
@@ -173,6 +173,19 @@ export function processUssdRequest(
         const product = mockBanks
           .find((b) => b.name === selectedBankName)
           ?.loanProducts.find((p) => p.name === selectedProductName);
+        
+        const existingLoans = MockDatabase.getLoans(phoneNumber);
+        const hasActiveLoanFromSameBank = existingLoans.some(
+          (loan) => loan.bankName === selectedBankName && loan.status === 'Active'
+        );
+
+        if (hasActiveLoanFromSameBank) {
+            responseMessage = `You already have an active loan with ${selectedBankName}. Please repay it before applying for a new one.`;
+            responsePrefix = 'END';
+            sessionManager.deleteSession(sessionId);
+            break;
+        }
+
         if (selectedBankName && selectedProductName && loanAmount && product) {
           MockDatabase.addLoan(
             phoneNumber,
