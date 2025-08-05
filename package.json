@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack -p 9002",
+    "dev": "next dev --turbopack -p 9003",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "tunnel": "lt --port 9002"
+    "tunnel": "lt --port 9003"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",
