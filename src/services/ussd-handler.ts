@@ -374,6 +374,8 @@ export function processUssdRequest(
     console.log('[Handler] Session ended.');
   }
   
-  const finalMessage = responseMessage + (responseMessage && nextSession.screen === 'HOME' ? '\n' : '') + getMenuText(nextSession);
+  const menuText = getMenuText(nextSession);
+  const finalMessage = `${responseMessage}${menuText}`;
+  
   return `${responsePrefix} ${finalMessage}`;
 }
