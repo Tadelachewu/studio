@@ -6,7 +6,7 @@ export default function Home() {
           Mobili Finance USSD API
         </h1>
         <p className="mt-2 text-muted-foreground">
-          The USSD API endpoint is running.
+          The USSD API endpoint is running at /api/ussd.
         </p>
       </div>
     </main>

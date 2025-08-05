@@ -21,6 +21,12 @@ export interface MockLoan {
   date: Date;
 }
 
+export interface MockUser {
+    phoneNumber: string;
+    pin: string;
+    fayidaId: string;
+}
+
 export const mockBanks: Bank[] = [
   {
     name: "NIB Bank",
@@ -49,6 +55,13 @@ export const mockBanks: Bank[] = [
     ],
   },
 ];
+
+const mockUsers: MockUser[] = [
+    { phoneNumber: "+251900000001", pin: "1234", fayidaId: "12345678" },
+    { phoneNumber: "+251900000002", pin: "5678", fayidaId: "87654321" },
+    { phoneNumber: "+251900000003", pin: "4321", fayidaId: "11223344" },
+];
+
 
 const initialUserLoans: Record<string, MockLoan[]> = {
   "+251900000001": [
@@ -87,12 +100,6 @@ const initialUserLoans: Record<string, MockLoan[]> = {
   ],
 };
 
-const userPins: Record<string, string> = {
-  "+251900000001": "1234",
-  "+251900000002": "5678",
-  "+251900000003": "4321",
-};
-
 const userBalances: Record<string, number> = {
     "+251900000001": 5000.00,
     "+251900000002": 12500.75,
@@ -107,16 +114,22 @@ const userTransactions: Record<string, string[]> = {
 
 // In-memory database object
 export const MockDatabase = {
-    userPins: { ...userPins },
+    users: [...mockUsers],
     userLoans: JSON.parse(JSON.stringify(initialUserLoans)) as Record<string, MockLoan[]>, // Deep copy
     userBalances: { ...userBalances },
     userTransactions: JSON.parse(JSON.stringify(userTransactions)) as Record<string, string[]>,
 
+    getUserByFayidaId(fayidaId: string): MockUser | undefined {
+        return this.users.find(u => u.fayidaId === fayidaId);
+    },
     getPin(phoneNumber: string): string | undefined {
-        return this.userPins[phoneNumber];
+        return this.users.find(u => u.phoneNumber === phoneNumber)?.pin;
     },
     setPin(phoneNumber: string, newPin: string) {
-        this.userPins[phoneNumber] = newPin;
+        const user = this.users.find(u => u.phoneNumber === phoneNumber);
+        if(user) {
+            user.pin = newPin;
+        }
     },
     getLoans(phoneNumber: string): MockLoan[] {
         return this.userLoans[phoneNumber] || [];
