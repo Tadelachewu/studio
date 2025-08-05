@@ -17,21 +17,28 @@ export function normalizePhoneNumber(phoneNumber: string): string {
   }
   // Remove all non-digit characters except for a leading '+'
   let cleaned = phoneNumber.trim();
+  console.log(`[Normalize] Input: "${phoneNumber}", Cleaned: "${cleaned}"`);
 
   if (cleaned.startsWith('+251')) {
+    console.log(`[Normalize] Output (already standard): "${cleaned}"`);
     return cleaned;
   }
   if (cleaned.startsWith('251')) {
-    return `+${cleaned}`;
+    const normalized = `+${cleaned}`;
+    console.log(`[Normalize] Output (from 251...): "${normalized}"`);
+    return normalized;
   }
   if (cleaned.startsWith('09')) {
-    return `+251${cleaned.substring(1)}`;
+    const normalized = `+251${cleaned.substring(1)}`;
+    console.log(`[Normalize] Output (from 09...): "${normalized}"`);
+    return normalized;
   }
   if (cleaned.length === 9 && (cleaned.startsWith('9') || cleaned.startsWith('7'))) {
-     // Assume it's a 9-digit number without country code
-    return `+251${cleaned}`;
+    const normalized = `+251${cleaned}`;
+    console.log(`[Normalize] Output (from 9...): "${normalized}"`);
+    return normalized;
   }
-  // Return the original if it doesn't match known patterns,
-  // or a more specific error/default format.
+  
+  console.log(`[Normalize] Output (unrecognized format): "${phoneNumber}"`);
   return phoneNumber;
 }

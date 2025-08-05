@@ -135,21 +135,29 @@ export const MockDatabase = {
 
   getUserByPhoneNumber(phoneNumber: string): MockUser | undefined {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    console.log(`[DB] Getting user for normalized phone: ${normalizedPhone}`);
     return this.users.find((u) => u.phoneNumber === normalizedPhone);
   },
   getPin(phoneNumber: string): string | undefined {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
-    return this.users.find((u) => u.phoneNumber === normalizedPhone)?.pin;
+    console.log(`[DB] Getting PIN for normalized phone: ${normalizedPhone}`);
+    const pin = this.users.find((u) => u.phoneNumber === normalizedPhone)?.pin;
+    console.log(`[DB] Found PIN: ${pin ? '****' : 'undefined'}`);
+    return pin;
   },
   setPin(phoneNumber: string, newPin: string) {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
     const user = this.users.find((u) => u.phoneNumber === normalizedPhone);
     if (user) {
       user.pin = newPin;
+      console.log(`[DB] Set new PIN for ${normalizedPhone}`);
+    } else {
+      console.log(`[DB] Could not set PIN, user not found for ${normalizedPhone}`);
     }
   },
   getLoans(phoneNumber: string): MockLoan[] {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    console.log(`[DB] Getting loans for normalized phone: ${normalizedPhone}`);
     return this.userLoans[normalizedPhone] || [];
   },
   addLoan(
@@ -160,6 +168,7 @@ export const MockDatabase = {
     interest: number
   ) {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    console.log(`[DB] Adding loan for normalized phone: ${normalizedPhone}`);
     if (!this.userLoans[normalizedPhone]) {
       this.userLoans[normalizedPhone] = [];
     }
@@ -185,6 +194,7 @@ export const MockDatabase = {
   },
   repayLoan(phoneNumber: string, loanId: string, repayAmount: number) {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    console.log(`[DB] Repaying loan for normalized phone: ${normalizedPhone}`);
     const loan = this.userLoans[normalizedPhone]?.find((l) => l.id === loanId);
     if (loan) {
       loan.repaid += repayAmount;
@@ -199,16 +209,20 @@ export const MockDatabase = {
       this.userTransactions[normalizedPhone].push(
         `Repayment of ${repayAmount.toFixed(2)} to ${loan.bankName}`
       );
+      console.log(`[DB] Repayment successful for loan ID ${loanId}`);
       return true;
     }
+    console.log(`[DB] Repayment failed, loan ID ${loanId} not found`);
     return false;
   },
   getBalance(phoneNumber: string): number {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    console.log(`[DB] Getting balance for normalized phone: ${normalizedPhone}`);
     return this.userBalances[normalizedPhone] || 0;
   },
   getTransactions(phoneNumber: string): string[] {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    console.log(`[DB] Getting transactions for normalized phone: ${normalizedPhone}`);
     return this.userTransactions[normalizedPhone] || [];
   },
 };
