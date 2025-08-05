@@ -19,12 +19,61 @@ export function processUssdRequest(
   }
 
   const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
-  if (!user || !user.isVerified) {
+  if (!user) {
+    // This case should ideally not happen if phone numbers are controlled
+    // but as a safeguard:
+    responsePrefix = 'END';
+    responseMessage = 'Your phone number is not registered.';
+    sessionManager.deleteSession(sessionId);
+    return `${responsePrefix} ${responseMessage}`;
+  }
+
+  if (!user.isVerified && session.screen !== 'PIN') {
     responsePrefix = 'END';
     responseMessage =
       'Your account is not verified. Please contact customer support.';
+    sessionManager.deleteSession(sessionId);
     return `${responsePrefix} ${responseMessage}`;
   }
+
+  // This is the first interaction for a verified user
+  if (!session.authenticated && session.screen === 'PIN' && userInput === '') {
+      // Let it fall through to show the PIN entry menu
+  } else if (!session.authenticated) {
+    // All subsequent interactions before auth must be PIN validation
+    const pin = MockDatabase.getPin(normalizedPhone);
+    if (pin && userInput.length === 4 && /^\d+$/.test(userInput)) {
+      if (userInput === pin) {
+        session.authenticated = true;
+        session.screen = 'HOME';
+        session.pinAttempts = 0;
+        responseMessage = 'Login successful.\n'; // Explicit notification
+      } else {
+        session.pinAttempts++;
+        if (session.pinAttempts >= 3) {
+          responseMessage = `Too many incorrect PIN attempts. Session ended.`;
+          responsePrefix = 'END';
+          sessionManager.deleteSession(sessionId);
+        } else {
+          responseMessage = `Incorrect PIN. Attempt ${session.pinAttempts} of 3. Try again:`;
+        }
+      }
+    } else {
+      // This handles the very first time the user sees the PIN screen
+      // or invalid PIN formats
+      responseMessage = session.pinAttempts > 0 
+        ? `Incorrect PIN. Attempt ${session.pinAttempts} of 3. Try again:`
+        : `Welcome to Mobili Finance. Please enter your 4-digit PIN:`;
+    }
+    
+    // If not authenticated and not exiting, we stay on the PIN screen
+    if (!session.authenticated && responsePrefix !== 'END') {
+       sessionManager.updateSession(sessionId, session);
+       const menuText = getMenuText(session);
+       return `${responsePrefix} ${responseMessage || menuText}`;
+    }
+  }
+
 
   let nextSession = { ...session };
 
@@ -34,24 +83,9 @@ export function processUssdRequest(
 
   switch (session.screen) {
     case 'PIN':
-      const pin = MockDatabase.getPin(normalizedPhone);
-      if (pin && userInput.length === 4 && /^\d+$/.test(userInput)) {
-        if (userInput === pin) {
-          nextSession.authenticated = true;
-          nextSession.screen = 'HOME';
-          nextSession.pinAttempts = 0;
-        } else {
-          nextSession.pinAttempts++;
-          if (nextSession.pinAttempts >= 3) {
-            responseMessage = `Too many incorrect PIN attempts. Session ended.`;
-            responsePrefix = 'END';
-            sessionManager.deleteSession(sessionId);
-          } else {
-            responseMessage = `Incorrect PIN. Attempt ${nextSession.pinAttempts} of 3. Try again:`;
-          }
-        }
-      } else {
-        responseMessage = 'Invalid PIN format. Enter your 4-digit PIN:';
+      // This case is now only for the first successful login, to transition to HOME
+      if (session.authenticated) {
+        nextSession.screen = 'HOME';
       }
       break;
 
@@ -90,6 +124,11 @@ export function processUssdRequest(
           sessionManager.deleteSession(sessionId);
           break;
         default:
+          // Handles the case where a user logs in and gets the success message,
+          // then the home menu is appended.
+          if (responseMessage.includes('Login successful')) {
+             break;
+          }
           responseMessage = 'Invalid choice.';
           break;
       }
@@ -201,9 +240,9 @@ export function processUssdRequest(
             loanAmount,
             loanAmount * product.interestRate
           );
-          responseMessage = `Application for ${loanAmount.toFixed(
+          responseMessage = `Loan application successful! Amount of ${loanAmount.toFixed(
             2
-          )} for ${selectedProductName} submitted! Amount credited.`;
+          )} for ${selectedProductName} has been credited to your account.`;
           responsePrefix = 'END';
           sessionManager.deleteSession(sessionId);
         } else {
@@ -272,7 +311,7 @@ export function processUssdRequest(
           MockDatabase.repayLoan(normalizedPhone, repayLoan.id, repayAmount);
           responseMessage = `Repayment of ${repayAmount.toFixed(
             2
-          )} successful.`;
+          )} was successful.`;
           responsePrefix = 'END';
           sessionManager.deleteSession(sessionId);
         } else {
@@ -290,11 +329,11 @@ export function processUssdRequest(
       }
       if (userInput.length === 4 && /^\d+$/.test(userInput)) {
         MockDatabase.setPin(normalizedPhone, userInput);
-        responseMessage = 'PIN changed successfully.';
+        responseMessage = 'Your PIN has been changed successfully.';
         responsePrefix = 'END';
         sessionManager.deleteSession(sessionId);
       } else {
-        responseMessage = 'Invalid PIN format. Enter new 4-digit PIN.';
+        responseMessage = 'Invalid PIN format. Enter a new 4-digit PIN.';
       }
       break;
 
@@ -311,6 +350,6 @@ export function processUssdRequest(
     sessionManager.updateSession(sessionId, nextSession);
   }
   
-  const finalMessage = responseMessage || getMenuText(nextSession);
+  const finalMessage = responseMessage + (responseMessage && nextSession.screen === 'HOME' ? '\n' : '') + getMenuText(nextSession);
   return `${responsePrefix} ${finalMessage}`;
 }
