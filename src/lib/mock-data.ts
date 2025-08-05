@@ -25,6 +25,7 @@ export interface MockUser {
     phoneNumber: string;
     pin: string;
     fayidaId: string;
+    isVerified: boolean;
 }
 
 export const mockBanks: Bank[] = [
@@ -57,9 +58,9 @@ export const mockBanks: Bank[] = [
 ];
 
 const mockUsers: MockUser[] = [
-    { phoneNumber: "+251900000001", pin: "1234", fayidaId: "12345678" },
-    { phoneNumber: "+251900000002", pin: "5678", fayidaId: "87654321" },
-    { phoneNumber: "+251900000003", pin: "4321", fayidaId: "11223344" },
+    { phoneNumber: "+251900000001", pin: "1234", fayidaId: "1235678", isVerified: true },
+    { phoneNumber: "+251900000002", pin: "5678", fayidaId: "87654321", isVerified: true },
+    { phoneNumber: "+251900000003", pin: "4321", fayidaId: "11223344", isVerified: false },
 ];
 
 
@@ -119,8 +120,8 @@ export const MockDatabase = {
     userBalances: { ...userBalances },
     userTransactions: JSON.parse(JSON.stringify(userTransactions)) as Record<string, string[]>,
 
-    getUserByFayidaId(fayidaId: string): MockUser | undefined {
-        return this.users.find(u => u.fayidaId === fayidaId);
+    getUserByPhoneNumber(phoneNumber: string): MockUser | undefined {
+        return this.users.find(u => u.phoneNumber === phoneNumber);
     },
     getPin(phoneNumber: string): string | undefined {
         return this.users.find(u => u.phoneNumber === phoneNumber)?.pin;

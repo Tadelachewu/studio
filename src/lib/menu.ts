@@ -3,10 +3,8 @@ import { mockBanks, MockDatabase } from '@/lib/mock-data';
 
 export function getMenuText(currentSession: SessionData): string {
   switch (currentSession.screen) {
-    case 'FAYIDA_ID':
-      return `Welcome to Mobili Finance. Please enter your Fayida ID:`;
     case 'PIN':
-      return `Enter your 4-digit PIN:`;
+      return `Welcome to Mobili Finance. Please enter your 4-digit PIN:`;
     case 'HOME':
       return `Welcome to Microloan USSD.\n1. Apply for Loan\n2. Check Loan Status\n3. Repay Loan\n4. Check Balance\n5. Transaction History\n6. Change PIN\n0. Exit`;
     case 'CHOOSE_BANK':

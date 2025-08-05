@@ -1,7 +1,6 @@
 import { getMenuText } from '@/lib/menu';
 import { mockBanks, MockDatabase } from '@/lib/mock-data';
 import { sessionManager } from '@/lib/session';
-import { type SessionData } from '@/lib/types';
 
 export function processUssdRequest(
   sessionId: string,
@@ -9,13 +8,19 @@ export function processUssdRequest(
   userInput: string
 ): string {
   let session = sessionManager.getSession(sessionId);
+  let responsePrefix = 'CON';
+  let responseMessage = '';
 
   if (!session) {
     session = sessionManager.createSession(sessionId, phoneNumber);
+    const user = MockDatabase.getUserByPhoneNumber(phoneNumber);
+    if (!user || !user.isVerified) {
+        responsePrefix = 'END';
+        responseMessage = 'Your account is not verified. Please contact customer support.';
+        return `${responsePrefix} ${responseMessage}`;
+    }
   }
 
-  let responsePrefix = 'CON';
-  let responseMessage = '';
   let nextSession = { ...session };
 
   const goHome = () => {
@@ -23,17 +28,6 @@ export function processUssdRequest(
   };
 
   switch (session.screen) {
-    case 'FAYIDA_ID':
-      const user = MockDatabase.getUserByFayidaId(userInput);
-      if (user && user.phoneNumber === phoneNumber) {
-        nextSession.screen = 'PIN';
-        nextSession.fayidaId = userInput;
-      } else {
-        responseMessage = 'Invalid Fayida ID. Please try again.';
-        // Keep the screen as FAYIDA_ID
-      }
-      break;
-
     case 'PIN':
       const pin = MockDatabase.getPin(phoneNumber) || '1234';
       if (userInput.length === 4 && /^\d+$/.test(userInput)) {

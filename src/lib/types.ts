@@ -1,7 +1,6 @@
 import { type MockLoan } from '@/lib/mock-data';
 
 export type Screen =
-  | 'FAYIDA_ID'
   | 'PIN'
   | 'HOME'
   | 'CHOOSE_BANK'
@@ -25,5 +24,4 @@ export type SessionData = {
   selectedRepayLoanId?: string;
   loanStatusPage: number;
   phoneNumber: string;
-  fayidaId?: string;
 };
