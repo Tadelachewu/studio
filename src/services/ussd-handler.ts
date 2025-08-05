@@ -31,7 +31,7 @@ export function processUssdRequest(
     case 'PIN':
       const pin = MockDatabase.getPin(phoneNumber);
       if (userInput.length === 4 && /^\d+$/.test(userInput)) {
-        if (userInput === pin) {
+        if (pin && userInput === pin) {
           nextSession.authenticated = true;
           nextSession.screen = 'HOME';
           nextSession.pinAttempts = 0;
