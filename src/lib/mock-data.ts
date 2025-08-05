@@ -110,42 +110,7 @@ const mockUsers: MockUser[] = [
   },
 ];
 
-const initialUserLoans: Record<string, MockLoan[]> = {
-  '+251900000001': [
-    {
-      id: 'loan1',
-      bankName: 'Dashen Bank',
-      productName: 'Emergency Fund',
-      amount: 500,
-      interest: 60,
-      repaid: 100,
-      status: 'Active',
-      date: new Date('2023-10-15'),
-    },
-  ],
-  '+251900000002': [
-    {
-      id: 'loan2',
-      bankName: 'NIB Bank',
-      productName: 'Business Starter',
-      amount: 10000,
-      interest: 800,
-      repaid: 2000,
-      status: 'Active',
-      date: new Date('2023-11-01'),
-    },
-    {
-      id: 'loan3',
-      bankName: 'Dashen Bank',
-      productName: 'Student Loan',
-      amount: 2000,
-      interest: 100,
-      repaid: 2100,
-      status: 'Paid Off',
-      date: new Date('2023-09-20'),
-    },
-  ],
-};
+const initialUserLoans: Record<string, MockLoan[]> = {};
 
 const userBalances: Record<string, number> = {
   '+251900000001': 5000.0,
@@ -153,13 +118,7 @@ const userBalances: Record<string, number> = {
   '+251900000003': 800.5,
 };
 
-const userTransactions: Record<string, string[]> = {
-  '+251900000001': ['Repayment of 100.00 to Dashen Bank'],
-  '+251900000002': [
-    'Loan of 10000.00 from NIB Bank',
-    'Repayment of 2000.00 to NIB Bank',
-  ],
-};
+const userTransactions: Record<string, string[]> = {};
 
 // In-memory database object
 export const MockDatabase = {
