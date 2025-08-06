@@ -31,7 +31,7 @@ export function processUssdRequest(
       session.language = 'am';
       session.screen = 'PIN';
     } else {
-      // Stay on language selection
+      // Stay on language selection if input is invalid
       sessionManager.updateSession(sessionId, session);
       const menuText = getMenuText(session);
       return `${responsePrefix} ${menuText}`;
@@ -60,7 +60,11 @@ export function processUssdRequest(
 
   if (!session.authenticated) {
     console.log('[Handler] User not authenticated. Checking PIN.');
-    if (userInput !== '') {
+    // User has made a choice on a previous screen that leads to the PIN screen
+    // but we don't have the pin yet. We should ask for it.
+    if (userInput === '' || (session.screen === 'PIN' && userInput !== '' && session.pinAttempts === 0)) {
+       console.log('[Handler] Prompting for PIN.');
+    } else {
       const correctPin = MockDatabase.getPin(normalizedPhone);
       if (correctPin && userInput === correctPin) {
         console.log('[Handler] PIN correct. Authenticating session.');
@@ -131,6 +135,8 @@ export function processUssdRequest(
   if (nextSession.screen === session.screen) {
     switch (session.screen) {
       case 'LANGUAGE_SELECT':
+        // This case is now handled at the top, but we keep it to avoid falling through.
+        break;
       case 'PIN':
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
@@ -170,6 +176,8 @@ export function processUssdRequest(
             sessionManager.deleteSession(sessionId);
             break;
           default:
+            // This case handles the lingering userInput from the PIN screen after a successful login.
+            // We want to show the success message and the menu, but not an "invalid choice" error.
             if (responseMessage.includes(t.loginSuccess)) {
                break;
             }
@@ -364,3 +372,5 @@ export function processUssdRequest(
   
   return `${responsePrefix} ${finalMessage}`;
 }
+
+    
