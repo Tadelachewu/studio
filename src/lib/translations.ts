@@ -57,9 +57,11 @@ export const translations = {
     errors: {
       notRegistered: 'Your phone number is not registered.',
       notVerified: 'Your account is not verified. Please contact customer support.',
+      invalidPinFormat: 'Invalid PIN. Please enter a 4-digit number.',
       incorrectPin: (attempts: number) => `Incorrect PIN. Attempt ${attempts} of 3. Try again:`,
       tooManyPinAttempts: 'Too many incorrect PIN attempts. Session ended.',
       invalidChoice: 'Invalid choice.',
+      invalidLanguageChoice: 'Invalid choice. Please select 1 for English or 2 for አማርኛ.',
       bankNotFound: 'Error: Bank not found.',
       productNotFound: 'Error: Product not found.',
       loanNotFound: 'Error: Loan not found.',
@@ -128,9 +130,11 @@ export const translations = {
     errors: {
       notRegistered: 'የስልክ ቁጥርዎ አልተመዘገበም።',
       notVerified: 'መለያዎ አልተረጋገጠም። እባክዎ የደንበኞች አገልግሎትን ያግኙ።',
+      invalidPinFormat: 'ልክ ያልሆነ ፒን። እባክዎ ባለ 4 አሃዝ ቁጥር ያስገቡ።',
       incorrectPin: (attempts: number) => `የተሳሳተ ፒን. ሙከራ ${attempts} ከ 3. እንደገና ይሞክሩ:`,
       tooManyPinAttempts: 'በጣም ብዙ የተሳሳቱ የፒን ሙከራዎች። ክፍለ-ጊዜው አልቋል።',
       invalidChoice: 'የተሳሳተ ምርጫ.',
+      invalidLanguageChoice: 'የተሳሳተ ምርጫ። እባክዎን ለእንግሊዝኛ 1 ወይም ለአማርኛ 2 ይምረጡ።',
       bankNotFound: 'ስህተት፡ ባንክ አልተገኘም።',
       productNotFound: 'ስህተት፡ የምርት አይነት አልተገኘም።',
       loanNotFound: 'ስህተት፡ ብድር አልተገኘም።',

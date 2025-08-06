@@ -30,18 +30,17 @@ export function processUssdRequest(
     } else if (userInput === '2') {
       session.language = 'am';
       session.screen = 'PIN';
+    } else if (userInput === '') {
+      // User is seeing the prompt for the first time
     } else {
-      // If the input is invalid (or empty on the first screen),
-      // just show the language selection menu and end this request.
-      sessionManager.updateSession(sessionId, session);
-      const menuText = getMenuText(session);
-      return `${responsePrefix} ${menuText}`;
+      // If the input is invalid
+      responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
     }
-    // After a valid language selection, update the session and prompt for PIN.
-    // Crucially, we return here to wait for the user's PIN input in the *next* request.
+    
     sessionManager.updateSession(sessionId, session);
     const menuText = getMenuText(session);
-    return `${responsePrefix} ${menuText}`;
+    const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
+    return `${responsePrefix} ${finalMessage}`;
   }
 
   const t = translations[session.language];
@@ -70,23 +69,29 @@ export function processUssdRequest(
     if (userInput === '') {
        console.log('[Handler] Waiting for PIN input.');
     } else {
-      const correctPin = MockDatabase.getPin(normalizedPhone);
-      if (correctPin && userInput === correctPin) {
-        console.log('[Handler] PIN correct. Authenticating session.');
-        session.authenticated = true;
-        session.screen = 'HOME';
-        session.pinAttempts = 0;
-        responseMessage = `${t.loginSuccess}\n`;
+       // Validate PIN format first
+      const isPinFormatValid = /^\d{4}$/.test(userInput);
+      if (!isPinFormatValid) {
+        responseMessage = t.errors.invalidPinFormat;
       } else {
-        session.pinAttempts++;
-        console.log(`[Handler] Incorrect PIN. Attempt ${session.pinAttempts}.`);
-        if (session.pinAttempts >= 3) {
-          console.log('[Handler] Too many PIN attempts. Ending session.');
-          responseMessage = t.errors.tooManyPinAttempts;
-          responsePrefix = 'END';
-          sessionManager.deleteSession(sessionId);
+        const correctPin = MockDatabase.getPin(normalizedPhone);
+        if (correctPin && userInput === correctPin) {
+          console.log('[Handler] PIN correct. Authenticating session.');
+          session.authenticated = true;
+          session.screen = 'HOME';
+          session.pinAttempts = 0;
+          responseMessage = `${t.loginSuccess}\n`;
         } else {
-          responseMessage = t.errors.incorrectPin(session.pinAttempts);
+          session.pinAttempts++;
+          console.log(`[Handler] Incorrect PIN. Attempt ${session.pinAttempts}.`);
+          if (session.pinAttempts >= 3) {
+            console.log('[Handler] Too many PIN attempts. Ending session.');
+            responseMessage = t.errors.tooManyPinAttempts;
+            responsePrefix = 'END';
+            sessionManager.deleteSession(sessionId);
+          } else {
+            responseMessage = t.errors.incorrectPin(session.pinAttempts);
+          }
         }
       }
     }
