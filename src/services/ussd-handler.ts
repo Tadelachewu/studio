@@ -144,7 +144,7 @@ export function processUssdRequest(
             nextSession.screen = 'LOAN_HISTORY';
             break;
           case '0':
-            responseMessage = 'Thank you for using Microloan USSD.';
+            responseMessage = 'Thank you for using NIB Loan.';
             responsePrefix = 'END';
             sessionManager.deleteSession(sessionId);
             break;

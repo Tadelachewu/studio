@@ -2,8 +2,8 @@ import type {Metadata} from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Mobili Finance',
-  description: 'Your mobile microloan partner',
+  title: 'NIB Loan',
+  description: 'Your mobile loan partner',
 };
 
 export default function RootLayout({

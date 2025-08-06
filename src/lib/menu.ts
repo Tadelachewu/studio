@@ -4,9 +4,9 @@ import { mockBanks, MockDatabase } from '@/lib/mock-data';
 export function getMenuText(currentSession: SessionData): string {
   switch (currentSession.screen) {
     case 'PIN':
-      return `Welcome to Mobili Finance. Please enter your 4-digit PIN:`;
+      return `Welcome to NIB Loan. Please enter your 4-digit PIN:`;
     case 'HOME':
-      return `Welcome to Microloan USSD.\n1. Apply for Loan\n2. Check Loan Status\n3. Repay Loan\n4. Check Balance\n5. Loan History\n0. Exit`;
+      return `Welcome to NIB Loan.\n1. Apply for Loan\n2. Check Loan Status\n3. Repay Loan\n4. Check Balance\n5. Loan History\n0. Exit`;
     case 'CHOOSE_BANK':
       return `Select Loan Provider:\n${mockBanks
         .map((b, i) => `${i + 1}. ${b.name}`)
