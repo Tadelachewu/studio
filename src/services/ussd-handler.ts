@@ -40,10 +40,8 @@ export function processUssdRequest(
     return `${responsePrefix} ${responseMessage}`;
   }
 
-  // This is the first interaction for a verified user OR subsequent PIN attempts
   if (!session.authenticated) {
     console.log('[Handler] User not authenticated. Checking PIN.');
-    // Skip PIN check if it's the very first interaction (userInput is empty)
     if (userInput !== '') {
       const correctPin = MockDatabase.getPin(normalizedPhone);
       if (correctPin && userInput === correctPin) {
@@ -65,7 +63,6 @@ export function processUssdRequest(
         }
       }
     }
-    // If not authenticated and not exiting, we stay on the PIN screen
     if (!session.authenticated && responsePrefix !== 'END') {
        console.log('[Handler] Staying on PIN screen.');
        sessionManager.updateSession(sessionId, session);
@@ -83,7 +80,6 @@ export function processUssdRequest(
     nextSession.screen = 'HOME';
   };
   
-  // Universal Navigation Handler
   if (session.screen !== 'HOME' && session.screen !== 'PIN') {
     if (userInput === '0') {
       goHome();
@@ -102,23 +98,19 @@ export function processUssdRequest(
         case 'REPAY_ENTER_AMOUNT':
           nextSession.screen = 'REPAY_SELECT_LOAN';
           break;
-        // For screens that are one level deep, 'back' goes home.
         case 'CHOOSE_BANK':
         case 'LOAN_STATUS':
         case 'REPAY_SELECT_LOAN':
-        case 'CHANGE_PIN':
-        case 'TRANSACTION_HISTORY':
+        case 'LOAN_HISTORY':
           goHome();
           break;
       }
     }
   }
 
-  // Only process screen-specific logic if universal navigation didn't change the screen
   if (nextSession.screen === session.screen) {
     switch (session.screen) {
       case 'PIN':
-        // This case is now only for the first successful login, to transition to HOME
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
           nextSession.screen = 'HOME';
@@ -149,10 +141,7 @@ export function processUssdRequest(
             sessionManager.deleteSession(sessionId);
             break;
           case '5':
-            nextSession.screen = 'TRANSACTION_HISTORY';
-            break;
-          case '6':
-            nextSession.screen = 'CHANGE_PIN';
+            nextSession.screen = 'LOAN_HISTORY';
             break;
           case '0':
             responseMessage = 'Thank you for using Microloan USSD.';
@@ -186,6 +175,7 @@ export function processUssdRequest(
           } else {
             nextSession.screen = 'CHOOSE_PRODUCT';
             nextSession.selectedBankName = selectedBankName;
+            nextSession.productPage = 0;
             console.log(`[Handler] Bank chosen: "${nextSession.selectedBankName}"`);
           }
         } else {
@@ -197,6 +187,21 @@ export function processUssdRequest(
       case 'CHOOSE_PRODUCT':
         const bank = mockBanks.find((b) => b.name === session.selectedBankName);
         if (bank) {
+          if (userInput === '8') {
+             const currentPage = nextSession.productPage || 0;
+             if ((currentPage + 1) * 2 < bank.loanProducts.length) {
+                nextSession.productPage = currentPage + 1;
+             }
+             break;
+          }
+          if (userInput === '7') {
+             const currentPage = nextSession.productPage || 0;
+             if (currentPage > 0) {
+                nextSession.productPage = currentPage - 1;
+             }
+             break;
+          }
+
           const productChoice = parseInt(userInput) - 1;
           if (
             productChoice >= 0 &&
@@ -263,6 +268,10 @@ export function processUssdRequest(
             responseMessage = 'An error occurred. Please try again.';
             goHome();
           }
+        } else if (userInput === '2') {
+          console.log('[Handler] User cancelled loan application.');
+          responseMessage = 'Loan application cancelled.';
+          goHome();
         } else {
           responseMessage = 'Invalid choice.';
         }
@@ -324,21 +333,7 @@ export function processUssdRequest(
         }
         break;
 
-      case 'CHANGE_PIN':
-        if (userInput.length === 4 && /^\d+$/.test(userInput)) {
-          console.log('[Handler] Changing PIN.');
-          MockDatabase.setPin(normalizedPhone, userInput);
-          responseMessage = 'Your PIN has been changed successfully.';
-          responsePrefix = 'END';
-          sessionManager.deleteSession(sessionId);
-        } else {
-          console.log(`[Handler] Invalid new PIN format: ${userInput}`);
-          responseMessage = 'Invalid PIN format. Enter a new 4-digit PIN.';
-        }
-        break;
-
-      case 'TRANSACTION_HISTORY':
-        // No input to process here other than home/back, which is handled universally
+      case 'LOAN_HISTORY':
         break;
     }
   }
@@ -350,7 +345,6 @@ export function processUssdRequest(
     console.log('[Handler] Session ended.');
   }
   
-  // If the session has ended, we don't need to add menu text
   if (responsePrefix === 'END') {
     return `${responsePrefix} ${responseMessage}`;
   }

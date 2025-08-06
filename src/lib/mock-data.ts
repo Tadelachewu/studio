@@ -46,6 +46,12 @@ export const mockBanks: Bank[] = [
         maxAmount: 20000,
         interestRate: 0.08,
       },
+       {
+        name: 'Flexi-Loan',
+        minAmount: 500,
+        maxAmount: 2500,
+        interestRate: 0.12,
+      },
     ],
   },
   {

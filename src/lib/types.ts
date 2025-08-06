@@ -10,8 +10,7 @@ export type Screen =
   | 'LOAN_STATUS'
   | 'REPAY_SELECT_LOAN'
   | 'REPAY_ENTER_AMOUNT'
-  | 'CHANGE_PIN'
-  | 'TRANSACTION_HISTORY';
+  | 'LOAN_HISTORY';
 
 export type SessionData = {
   screen: Screen;
@@ -23,5 +22,6 @@ export type SessionData = {
   repayLoans?: MockLoan[];
   selectedRepayLoanId?: string;
   loanStatusPage: number;
+  productPage?: number;
   phoneNumber: string;
 };

@@ -6,7 +6,7 @@ export function getMenuText(currentSession: SessionData): string {
     case 'PIN':
       return `Welcome to Mobili Finance. Please enter your 4-digit PIN:`;
     case 'HOME':
-      return `Welcome to Microloan USSD.\n1. Apply for Loan\n2. Check Loan Status\n3. Repay Loan\n4. Check Balance\n5. Transaction History\n6. Change PIN\n0. Exit`;
+      return `Welcome to Microloan USSD.\n1. Apply for Loan\n2. Check Loan Status\n3. Repay Loan\n4. Check Balance\n5. Loan History\n0. Exit`;
     case 'CHOOSE_BANK':
       return `Select Loan Provider:\n${mockBanks
         .map((b, i) => `${i + 1}. ${b.name}`)
@@ -16,12 +16,33 @@ export function getMenuText(currentSession: SessionData): string {
         (b) => b.name === currentSession.selectedBankName
       );
       if (!bank) return 'Error: Bank not found. \n0. Home';
-      return `Choose a loan product:\n${bank.loanProducts
+
+      const pageSize = 2;
+      const page = currentSession.productPage || 0;
+      const productsToShow = bank.loanProducts.slice(
+        page * pageSize,
+        (page + 1) * pageSize
+      );
+
+      let response = 'Choose a loan product:\n';
+      response += productsToShow
         .map(
           (p, i) =>
-            `${i + 1}. ${p.name} (Amount: ${p.minAmount}-${p.maxAmount})`
+            `${page * pageSize + i + 1}. ${p.name} (Amount: ${
+              p.minAmount
+            }-${p.maxAmount})`
         )
-        .join('\n')}\n0. Home\n99. Back`;
+        .join('\n');
+      
+      if ((page + 1) * pageSize < bank.loanProducts.length) {
+        response += '\n8. Next';
+      }
+      if (page > 0) {
+        response += '\n7. Prev';
+      }
+
+      response += '\n0. Home\n99. Back';
+      return response;
     }
     case 'APPLY_LOAN_AMOUNT': {
       const bank = mockBanks.find(
@@ -34,7 +55,7 @@ export function getMenuText(currentSession: SessionData): string {
       return `Enter amount (range: ${product.minAmount}-${product.maxAmount})\n0. Home\n99. Back`;
     }
     case 'APPLY_LOAN_CONFIRM': {
-      return `Confirm:\nProduct: ${currentSession.selectedProductName}\nAmount: ${currentSession.loanAmount}\n1. Confirm\n0. Home\n99. Back`;
+      return `Confirm:\nProduct: ${currentSession.selectedProductName}\nAmount: ${currentSession.loanAmount}\n1. Confirm\n2. Cancel\n0. Home\n99. Back`;
     }
     case 'LOAN_STATUS': {
       const userLoans = MockDatabase.getLoans(currentSession.phoneNumber);
@@ -84,14 +105,12 @@ export function getMenuText(currentSession: SessionData): string {
         2
       )})\n0. Home\n99. Back`;
     }
-    case 'CHANGE_PIN':
-      return `Enter new 4-digit PIN:\n0. Home`;
-    case 'TRANSACTION_HISTORY': {
+    case 'LOAN_HISTORY': {
       const transactions = MockDatabase.getTransactions(
         currentSession.phoneNumber
       ).slice(-5);
       if (transactions.length === 0) return 'No transactions found.\n0. Home';
-      return `Transaction History:\n${transactions.join('\n')}\n0. Home`;
+      return `Loan History:\n${transactions.join('\n')}\n0. Home`;
     }
     default:
       return `Invalid Screen.\n0. Exit`;
