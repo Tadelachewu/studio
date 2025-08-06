@@ -22,7 +22,7 @@ export function processUssdRequest(
     session = sessionManager.createSession(sessionId, normalizedPhone);
   }
 
-  // Language must be selected before anything else
+  // Handle language selection as the very first step.
   if (session.screen === 'LANGUAGE_SELECT') {
     if (userInput === '1') {
       session.language = 'en';
@@ -31,11 +31,17 @@ export function processUssdRequest(
       session.language = 'am';
       session.screen = 'PIN';
     } else {
-      // Stay on language selection if input is invalid
+      // If the input is invalid (or empty on the first screen),
+      // just show the language selection menu and end this request.
       sessionManager.updateSession(sessionId, session);
       const menuText = getMenuText(session);
       return `${responsePrefix} ${menuText}`;
     }
+    // After a valid language selection, update the session and prompt for PIN.
+    // Crucially, we return here to wait for the user's PIN input in the *next* request.
+    sessionManager.updateSession(sessionId, session);
+    const menuText = getMenuText(session);
+    return `${responsePrefix} ${menuText}`;
   }
 
   const t = translations[session.language];
@@ -60,10 +66,9 @@ export function processUssdRequest(
 
   if (!session.authenticated) {
     console.log('[Handler] User not authenticated. Checking PIN.');
-    // User has made a choice on a previous screen that leads to the PIN screen
-    // but we don't have the pin yet. We should ask for it.
-    if (userInput === '' || (session.screen === 'PIN' && userInput !== '' && session.pinAttempts === 0)) {
-       console.log('[Handler] Prompting for PIN.');
+    // The user must provide a PIN input to proceed. An empty input means they just saw the prompt.
+    if (userInput === '') {
+       console.log('[Handler] Waiting for PIN input.');
     } else {
       const correctPin = MockDatabase.getPin(normalizedPhone);
       if (correctPin && userInput === correctPin) {
@@ -85,11 +90,12 @@ export function processUssdRequest(
         }
       }
     }
+    // If not authenticated and session is not ending, show the PIN prompt again.
     if (!session.authenticated && responsePrefix !== 'END') {
        console.log('[Handler] Staying on PIN screen.');
        sessionManager.updateSession(sessionId, session);
        const menuText = getMenuText(session);
-       return `${responsePrefix} ${responseMessage || menuText}`;
+       return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
     }
   }
 
@@ -138,6 +144,7 @@ export function processUssdRequest(
         // This case is now handled at the top, but we keep it to avoid falling through.
         break;
       case 'PIN':
+        // This case is only reached after successful authentication in this same request.
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
           nextSession.screen = 'HOME';
@@ -372,5 +379,3 @@ export function processUssdRequest(
   
   return `${responsePrefix} ${finalMessage}`;
 }
-
-    
