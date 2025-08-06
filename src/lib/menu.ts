@@ -8,7 +8,7 @@ export function getMenuText(currentSession: SessionData): string {
     case 'HOME':
       return `Welcome to Microloan USSD.\n1. Apply for Loan\n2. Check Loan Status\n3. Repay Loan\n4. Check Balance\n5. Transaction History\n6. Change PIN\n0. Exit`;
     case 'CHOOSE_BANK':
-      return `Select Bank:\n${mockBanks
+      return `Select Loan Provider:\n${mockBanks
         .map((b, i) => `${i + 1}. ${b.name}`)
         .join('\n')}\n0. Home`;
     case 'CHOOSE_PRODUCT': {
