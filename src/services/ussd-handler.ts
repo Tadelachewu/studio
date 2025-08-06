@@ -161,23 +161,10 @@ export function processUssdRequest(
       case 'CHOOSE_BANK':
         const bankChoice = parseInt(userInput) - 1;
         if (bankChoice >= 0 && bankChoice < mockBanks.length) {
-          const selectedBankName = mockBanks[bankChoice].name;
-          const existingLoans = MockDatabase.getLoans(normalizedPhone);
-          const hasActiveLoanFromSameBank = existingLoans.some(
-            (loan) => loan.bankName === selectedBankName && loan.status === 'Active'
-          );
-
-          if (hasActiveLoanFromSameBank) {
-              console.log(`[Handler] User already has an active loan with ${selectedBankName}.`);
-              responseMessage = `You already have an active loan with this provider. Please repay your current loan before applying again.`;
-              responsePrefix = 'END';
-              sessionManager.deleteSession(sessionId);
-          } else {
             nextSession.screen = 'CHOOSE_PRODUCT';
-            nextSession.selectedBankName = selectedBankName;
+            nextSession.selectedBankName = mockBanks[bankChoice].name;
             nextSession.productPage = 0;
             console.log(`[Handler] Bank chosen: "${nextSession.selectedBankName}"`);
-          }
         } else {
           console.log('[Handler] Invalid bank choice.');
           responseMessage = 'Invalid bank choice.';
@@ -203,14 +190,22 @@ export function processUssdRequest(
           }
 
           const productChoice = parseInt(userInput) - 1;
-          if (
-            productChoice >= 0 &&
-            productChoice < bank.loanProducts.length
-          ) {
-            nextSession.screen = 'APPLY_LOAN_AMOUNT';
-            nextSession.selectedProductName =
-              bank.loanProducts[productChoice].name;
-            console.log(`[Handler] Product chosen: "${nextSession.selectedProductName}"`);
+          const isValidProductChoice = productChoice >= 0 && productChoice < bank.loanProducts.length;
+
+          if (isValidProductChoice) {
+            const existingLoans = MockDatabase.getLoans(normalizedPhone);
+            const hasActiveLoan = existingLoans.some(loan => loan.status === 'Active');
+
+            if (hasActiveLoan) {
+              console.log('[Handler] User has an active loan and is trying to apply for a new one.');
+              responseMessage = 'You already have an active loan. Please repay it before applying for a new one.';
+              responsePrefix = 'END';
+              sessionManager.deleteSession(sessionId);
+            } else {
+              nextSession.screen = 'APPLY_LOAN_AMOUNT';
+              nextSession.selectedProductName = bank.loanProducts[productChoice].name;
+              console.log(`[Handler] Product chosen: "${nextSession.selectedProductName}"`);
+            }
           } else {
             console.log('[Handler] Invalid product choice.');
             responseMessage = 'Invalid product choice.';
