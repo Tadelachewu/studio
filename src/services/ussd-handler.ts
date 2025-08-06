@@ -3,6 +3,7 @@ import { mockBanks, MockDatabase } from '@/lib/mock-data';
 import { sessionManager } from '@/lib/session';
 import { normalizePhoneNumber } from '@/lib/utils';
 import { SessionData } from '@/lib/types';
+import { translations } from '@/lib/translations';
 
 export function processUssdRequest(
   sessionId: string,
@@ -21,11 +22,29 @@ export function processUssdRequest(
     session = sessionManager.createSession(sessionId, normalizedPhone);
   }
 
+  // Language must be selected before anything else
+  if (session.screen === 'LANGUAGE_SELECT') {
+    if (userInput === '1') {
+      session.language = 'en';
+      session.screen = 'PIN';
+    } else if (userInput === '2') {
+      session.language = 'am';
+      session.screen = 'PIN';
+    } else {
+      // Stay on language selection
+      sessionManager.updateSession(sessionId, session);
+      const menuText = getMenuText(session);
+      return `${responsePrefix} ${menuText}`;
+    }
+  }
+
+  const t = translations[session.language];
+
   const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
   if (!user) {
     console.log(`[Handler] User not found for phone: ${normalizedPhone}. Ending session.`);
     responsePrefix = 'END';
-    responseMessage = 'Your phone number is not registered.';
+    responseMessage = t.errors.notRegistered;
     sessionManager.deleteSession(sessionId);
     return `${responsePrefix} ${responseMessage}`;
   }
@@ -34,8 +53,7 @@ export function processUssdRequest(
   if (!user.isVerified) {
     console.log('[Handler] User is not verified. Ending session.');
     responsePrefix = 'END';
-    responseMessage =
-      'Your account is not verified. Please contact customer support.';
+    responseMessage = t.errors.notVerified;
     sessionManager.deleteSession(sessionId);
     return `${responsePrefix} ${responseMessage}`;
   }
@@ -49,17 +67,17 @@ export function processUssdRequest(
         session.authenticated = true;
         session.screen = 'HOME';
         session.pinAttempts = 0;
-        responseMessage = 'Login successful.\n';
+        responseMessage = `${t.loginSuccess}\n`;
       } else {
         session.pinAttempts++;
         console.log(`[Handler] Incorrect PIN. Attempt ${session.pinAttempts}.`);
         if (session.pinAttempts >= 3) {
           console.log('[Handler] Too many PIN attempts. Ending session.');
-          responseMessage = 'Too many incorrect PIN attempts. Session ended.';
+          responseMessage = t.errors.tooManyPinAttempts;
           responsePrefix = 'END';
           sessionManager.deleteSession(sessionId);
         } else {
-          responseMessage = `Incorrect PIN. Attempt ${session.pinAttempts} of 3. Try again:`;
+          responseMessage = t.errors.incorrectPin(session.pinAttempts);
         }
       }
     }
@@ -80,7 +98,8 @@ export function processUssdRequest(
     nextSession.screen = 'HOME';
   };
   
-  if (session.screen !== 'HOME' && session.screen !== 'PIN') {
+  // This check MUST come before the screen-specific logic
+  if (session.screen !== 'HOME' && session.screen !== 'PIN' && session.screen !== 'LANGUAGE_SELECT') {
     if (userInput === '0') {
       goHome();
     } else if (userInput === '99') {
@@ -108,8 +127,10 @@ export function processUssdRequest(
     }
   }
 
+  // Only process screen-specific logic if we haven't already decided to navigate back/home
   if (nextSession.screen === session.screen) {
     switch (session.screen) {
+      case 'LANGUAGE_SELECT':
       case 'PIN':
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
@@ -136,7 +157,7 @@ export function processUssdRequest(
             break;
           case '4':
             const balance = MockDatabase.getBalance(normalizedPhone);
-            responseMessage = `Your account balance is: ${balance.toFixed(2)}`;
+            responseMessage = t.balance(balance.toFixed(2));
             responsePrefix = 'END';
             sessionManager.deleteSession(sessionId);
             break;
@@ -144,15 +165,15 @@ export function processUssdRequest(
             nextSession.screen = 'LOAN_HISTORY';
             break;
           case '0':
-            responseMessage = 'Thank you for using NIB Loan.';
+            responseMessage = t.exitMessage;
             responsePrefix = 'END';
             sessionManager.deleteSession(sessionId);
             break;
           default:
-            if (responseMessage.includes('Login successful')) {
+            if (responseMessage.includes(t.loginSuccess)) {
                break;
             }
-            responseMessage = 'Invalid choice.';
+            responseMessage = t.errors.invalidChoice;
             break;
         }
         console.log(`[Handler] HOME selection: "${userInput}", next screen: "${nextSession.screen}"`);
@@ -167,7 +188,7 @@ export function processUssdRequest(
             console.log(`[Handler] Bank chosen: "${nextSession.selectedBankName}"`);
         } else {
           console.log('[Handler] Invalid bank choice.');
-          responseMessage = 'Invalid bank choice.';
+          responseMessage = t.errors.invalidChoice;
         }
         break;
 
@@ -198,7 +219,7 @@ export function processUssdRequest(
 
             if (hasActiveLoan) {
               console.log('[Handler] User has an active loan and is trying to apply for a new one.');
-              responseMessage = 'You already have an active loan. Please repay it before applying for a new one.';
+              responseMessage = t.errors.hasActiveLoan;
               responsePrefix = 'END';
               sessionManager.deleteSession(sessionId);
             } else {
@@ -208,7 +229,7 @@ export function processUssdRequest(
             }
           } else {
             console.log('[Handler] Invalid product choice.');
-            responseMessage = 'Invalid product choice.';
+            responseMessage = t.errors.invalidChoice;
           }
         }
         break;
@@ -232,7 +253,7 @@ export function processUssdRequest(
           console.log(`[Handler] Loan amount entered: ${amount}`);
         } else {
           console.log(`[Handler] Invalid loan amount: ${userInput}`);
-          responseMessage = `Invalid amount. Enter a number between ${currentProduct?.minAmount} and ${currentProduct?.maxAmount}.`;
+          responseMessage = t.errors.invalidAmount(currentProduct?.minAmount, currentProduct?.maxAmount);
         }
         break;
 
@@ -253,22 +274,20 @@ export function processUssdRequest(
               loanAmount,
               loanAmount * product.interestRate
             );
-            responseMessage = `Loan application successful! Amount of ${loanAmount.toFixed(
-              2
-            )} for ${selectedProductName} has been credited to your account.`;
+            responseMessage = t.loanSuccess(loanAmount.toFixed(2), selectedProductName);
             responsePrefix = 'END';
             sessionManager.deleteSession(sessionId);
           } else {
             console.log('[Handler] Error during loan application (missing data).');
-            responseMessage = 'An error occurred. Please try again.';
+            responseMessage = t.errors.generic;
             goHome();
           }
         } else if (userInput === '2') {
           console.log('[Handler] User cancelled loan application.');
-          responseMessage = 'Loan application cancelled.';
+          responseMessage = t.loanCancelled;
           goHome();
         } else {
-          responseMessage = 'Invalid choice.';
+          responseMessage = t.errors.invalidChoice;
         }
         break;
 
@@ -295,7 +314,7 @@ export function processUssdRequest(
           console.log(`[Handler] Selected loan to repay: ID ${nextSession.selectedRepayLoanId}`);
         } else {
           console.log('[Handler] Invalid loan selection for repayment.');
-          responseMessage = 'Invalid loan selection.';
+          responseMessage = t.errors.invalidChoice;
         }
         break;
 
@@ -314,16 +333,12 @@ export function processUssdRequest(
           ) {
             console.log(`[Handler] Repaying loan with ${repayAmount}`);
             MockDatabase.repayLoan(normalizedPhone, repayLoan.id, repayAmount);
-            responseMessage = `Repayment of ${repayAmount.toFixed(
-              2
-            )} was successful.`;
+            responseMessage = t.repaymentSuccess(repayAmount.toFixed(2));
             responsePrefix = 'END';
             sessionManager.deleteSession(sessionId);
           } else {
             console.log(`[Handler] Invalid repayment amount: ${repayAmount}`);
-            responseMessage = `Invalid amount. Enter a number between 1 and ${outstanding.toFixed(
-              2
-            )}.`;
+            responseMessage = t.errors.invalidRepayment(outstanding.toFixed(2));
           }
         }
         break;

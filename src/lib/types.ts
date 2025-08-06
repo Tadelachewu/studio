@@ -1,6 +1,7 @@
 import { type MockLoan } from '@/lib/mock-data';
 
 export type Screen =
+  | 'LANGUAGE_SELECT'
   | 'PIN'
   | 'HOME'
   | 'CHOOSE_BANK'
@@ -24,4 +25,5 @@ export type SessionData = {
   loanStatusPage: number;
   productPage?: number;
   phoneNumber: string;
+  language: 'en' | 'am';
 };

@@ -17,11 +17,12 @@ export const sessionManager = {
 
   createSession(sessionId: string, phoneNumber: string): SessionData {
     const newSession: SessionData = {
-      screen: 'PIN',
+      screen: 'LANGUAGE_SELECT',
       pinAttempts: 0,
       authenticated: false,
       loanStatusPage: 0,
       phoneNumber,
+      language: 'en', // Default to English
     };
     sessions.set(sessionId, newSession);
     console.log(`[Session] Created new session for ID ${sessionId}:`, newSession);

@@ -1,21 +1,26 @@
 import { type SessionData } from '@/lib/types';
 import { mockBanks, MockDatabase } from '@/lib/mock-data';
+import { translations } from '@/lib/translations';
 
 export function getMenuText(currentSession: SessionData): string {
+  const t = translations[currentSession.language];
+
   switch (currentSession.screen) {
+    case 'LANGUAGE_SELECT':
+      return `1. English\n2. አማርኛ`;
     case 'PIN':
-      return `Welcome to NIB Loan. Please enter your 4-digit PIN:`;
+      return t.pinPrompt;
     case 'HOME':
-      return `Welcome to NIB Loan.\n1. Apply for Loan\n2. Check Loan Status\n3. Repay Loan\n4. Check Balance\n5. Loan History\n0. Exit`;
+      return `${t.homeMenu.title}\n1. ${t.homeMenu.apply}\n2. ${t.homeMenu.status}\n3. ${t.homeMenu.repay}\n4. ${t.homeMenu.balance}\n5. ${t.homeMenu.history}\n0. ${t.homeMenu.exit}`;
     case 'CHOOSE_BANK':
-      return `Select Loan Provider:\n${mockBanks
+      return `${t.chooseBank}\n${mockBanks
         .map((b, i) => `${i + 1}. ${b.name}`)
-        .join('\n')}\n0. Home`;
+        .join('\n')}\n0. ${t.navigation.home}`;
     case 'CHOOSE_PRODUCT': {
       const bank = mockBanks.find(
         (b) => b.name === currentSession.selectedBankName
       );
-      if (!bank) return 'Error: Bank not found. \n0. Home';
+      if (!bank) return `${t.errors.bankNotFound} \n0. ${t.navigation.home}`;
 
       const pageSize = 2;
       const page = currentSession.productPage || 0;
@@ -24,24 +29,24 @@ export function getMenuText(currentSession: SessionData): string {
         (page + 1) * pageSize
       );
 
-      let response = 'Choose a loan product:\n';
+      let response = `${t.chooseProduct.title}\n`;
       response += productsToShow
         .map(
           (p, i) =>
-            `${page * pageSize + i + 1}. ${p.name} (Amount: ${
+            `${page * pageSize + i + 1}. ${p.name} (${t.chooseProduct.amount}: ${
               p.minAmount
             }-${p.maxAmount})`
         )
         .join('\n');
       
       if ((page + 1) * pageSize < bank.loanProducts.length) {
-        response += '\n8. Next';
+        response += `\n8. ${t.navigation.next}`;
       }
       if (page > 0) {
-        response += '\n7. Prev';
+        response += `\n7. ${t.navigation.prev}`;
       }
 
-      response += '\n0. Home\n99. Back';
+      response += `\n0. ${t.navigation.home}\n99. ${t.navigation.back}`;
       return response;
     }
     case 'APPLY_LOAN_AMOUNT': {
@@ -51,68 +56,68 @@ export function getMenuText(currentSession: SessionData): string {
       const product = bank?.loanProducts.find(
         (p) => p.name === currentSession.selectedProductName
       );
-      if (!product) return 'Error: Product not found. \n0. Home';
-      return `Enter amount (range: ${product.minAmount}-${product.maxAmount})\n0. Home\n99. Back`;
+      if (!product) return `${t.errors.productNotFound} \n0. ${t.navigation.home}`;
+      return `${t.enterAmount.prompt} (${t.enterAmount.range}: ${product.minAmount}-${product.maxAmount})\n0. ${t.navigation.home}\n99. ${t.navigation.back}`;
     }
     case 'APPLY_LOAN_CONFIRM': {
-      return `Confirm:\nProduct: ${currentSession.selectedProductName}\nAmount: ${currentSession.loanAmount}\n1. Confirm\n2. Cancel\n0. Home\n99. Back`;
+      return `${t.confirmLoan.title}\n${t.confirmLoan.product}: ${currentSession.selectedProductName}\n${t.confirmLoan.amount}: ${currentSession.loanAmount}\n1. ${t.confirmLoan.confirm}\n2. ${t.confirmLoan.cancel}\n0. ${t.navigation.home}\n99. ${t.navigation.back}`;
     }
     case 'LOAN_STATUS': {
       const userLoans = MockDatabase.getLoans(currentSession.phoneNumber);
-      if (userLoans.length === 0) return 'You have no loans.\n0. Home';
+      if (userLoans.length === 0) return `${t.loanStatus.noLoans}\n0. ${t.navigation.home}`;
       const pageSize = 2;
       const page = currentSession.loanStatusPage;
       const loansToShow = userLoans.slice(
         page * pageSize,
         (page + 1) * pageSize
       );
-      let response = 'Your Loan Status:\n';
+      let response = `${t.loanStatus.title}\n`;
       response += loansToShow
         .map((loan, i) => {
           const outstanding = loan.amount + loan.interest - loan.repaid;
           return `${page * pageSize + i + 1}. ${
             loan.bankName
-          }, ${loan.productName}, Outstanding: ${outstanding.toFixed(2)}`;
+          }, ${loan.productName}, ${t.loanStatus.outstanding}: ${outstanding.toFixed(2)}`;
         })
         .join('\n');
 
-      if ((page + 1) * pageSize < userLoans.length) response += '\n9. More';
-      response += '\n0. Home';
+      if ((page + 1) * pageSize < userLoans.length) response += `\n9. ${t.navigation.more}`;
+      response += `\n0. ${t.navigation.home}`;
       return response;
     }
     case 'REPAY_SELECT_LOAN': {
       const loans = currentSession.repayLoans || [];
-      if (loans.length === 0) return 'No active loans to repay.\n0. Home';
-      let response = 'Select loan to repay:\n';
+      if (loans.length === 0) return `${t.repayLoan.noActiveLoans}\n0. ${t.navigation.home}`;
+      let response = `${t.repayLoan.selectLoan}\n`;
       response += loans
         .map((loan, i) => {
           const outstanding = loan.amount + loan.interest - loan.repaid;
           return `${i + 1}. ${loan.bankName} - ${
             loan.productName
-          } (Outstanding: ${outstanding.toFixed(2)})`;
+          } (${t.loanStatus.outstanding}: ${outstanding.toFixed(2)})`;
         })
         .join('\n');
-      response += '\n0. Home';
+      response += `\n0. ${t.navigation.home}`;
       return response;
     }
     case 'REPAY_ENTER_AMOUNT': {
       const loan = (currentSession.repayLoans || []).find(
         (l) => l.id === currentSession.selectedRepayLoanId
       );
-      if (!loan) return 'Error: Loan not found.\n0. Home';
+      if (!loan) return `${t.errors.loanNotFound}\n0. ${t.navigation.home}`;
       const outstanding = loan.amount + loan.interest - loan.repaid;
-      return `Enter amount to repay (Outstanding: ${outstanding.toFixed(
+      return `${t.repayLoan.enterAmount} (${t.loanStatus.outstanding}: ${outstanding.toFixed(
         2
-      )})\n0. Home\n99. Back`;
+      )})\n0. ${t.navigation.home}\n99. ${t.navigation.back}`;
     }
     case 'LOAN_HISTORY': {
       const transactions = MockDatabase.getTransactions(
         currentSession.phoneNumber
       ).slice(-5);
-      if (transactions.length === 0) return 'No transactions found.\n0. Home';
-      return `Loan History:\n${transactions.join('\n')}\n0. Home`;
+      if (transactions.length === 0) return `${t.loanHistory.noTransactions}\n0. ${t.navigation.home}`;
+      return `${t.loanHistory.title}:\n${transactions.join('\n')}\n0. ${t.navigation.home}`;
     }
     default:
-      return `Invalid Screen.\n0. Exit`;
+      return `${t.errors.invalidScreen}\n0. ${t.navigation.exit}`;
   }
 }
