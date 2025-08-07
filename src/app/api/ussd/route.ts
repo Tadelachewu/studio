@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const userInput = text.split('*').pop()?.trim() || '';
   console.log(`Extracted User Input: "${userInput}"`);
 
-  const responseBody = processUssdRequest(sessionId, phoneNumber, userInput);
+  const responseBody = await processUssdRequest(sessionId, phoneNumber, userInput);
   console.log(`Sending Response: "${responseBody}"`);
   console.log('------------------------------------');
 
