@@ -1,5 +1,4 @@
 import { type SessionData } from '@/lib/types';
-import { mockBanks, MockDatabase } from '@/lib/mock-data';
 import { translations } from '@/lib/translations';
 
 export function getMenuText(currentSession: SessionData): string {
@@ -12,19 +11,18 @@ export function getMenuText(currentSession: SessionData): string {
       return t.pinPrompt;
     case 'HOME':
       return `${t.homeMenu.title}\n1. ${t.homeMenu.apply}\n2. ${t.homeMenu.status}\n3. ${t.homeMenu.repay}\n4. ${t.homeMenu.balance}\n5. ${t.homeMenu.history}\n0. ${t.homeMenu.exit}`;
-    case 'CHOOSE_BANK':
-      return `${t.chooseBank}\n${mockBanks
-        .map((b, i) => `${i + 1}. ${b.name}`)
+    case 'CHOOSE_PROVIDER': {
+       if (!currentSession.providers) return `${t.errors.generic}\n0. ${t.navigation.home}`;
+      return `${t.chooseProvider}\n${currentSession.providers
+        .map((p, i) => `${i + 1}. ${p.name}`)
         .join('\n')}\n0. ${t.navigation.home}`;
+    }
     case 'CHOOSE_PRODUCT': {
-      const bank = mockBanks.find(
-        (b) => b.name === currentSession.selectedBankName
-      );
-      if (!bank) return `${t.errors.bankNotFound} \n0. ${t.navigation.home}`;
-
+      if (!currentSession.products) return `${t.errors.generic}\n0. ${t.navigation.home}`;
+      
       const pageSize = 2;
       const page = currentSession.productPage || 0;
-      const productsToShow = bank.loanProducts.slice(
+      const productsToShow = currentSession.products.slice(
         page * pageSize,
         (page + 1) * pageSize
       );
@@ -39,7 +37,7 @@ export function getMenuText(currentSession: SessionData): string {
         )
         .join('\n');
       
-      if ((page + 1) * pageSize < bank.loanProducts.length) {
+      if ((page + 1) * pageSize < currentSession.products.length) {
         response += `\n8. ${t.navigation.next}`;
       }
       if (page > 0) {
@@ -50,17 +48,14 @@ export function getMenuText(currentSession: SessionData): string {
       return response;
     }
     case 'APPLY_LOAN_AMOUNT': {
-      const bank = mockBanks.find(
-        (b) => b.name === currentSession.selectedBankName
-      );
-      const product = bank?.loanProducts.find(
-        (p) => p.name === currentSession.selectedProductName
-      );
+      const product = currentSession.products?.find(p => p.id === currentSession.selectedProductId);
       if (!product) return `${t.errors.productNotFound} \n0. ${t.navigation.home}`;
       return `${t.enterAmount.prompt} (${t.enterAmount.range}: ${product.minAmount}-${product.maxAmount})\n0. ${t.navigation.home}\n99. ${t.navigation.back}`;
     }
     case 'APPLY_LOAN_CONFIRM': {
-      return `${t.confirmLoan.title}\n${t.confirmLoan.product}: ${currentSession.selectedProductName}\n${t.confirmLoan.amount}: ${currentSession.loanAmount}\n1. ${t.confirmLoan.confirm}\n2. ${t.confirmLoan.cancel}\n0. ${t.navigation.home}\n99. ${t.navigation.back}`;
+      const product = currentSession.products?.find(p => p.id === currentSession.selectedProductId);
+      if (!product) return `${t.errors.productNotFound} \n0. ${t.navigation.home}`;
+      return `${t.confirmLoan.title}\n${t.confirmLoan.product}: ${product.name}\n${t.confirmLoan.amount}: ${currentSession.loanAmount}\n1. ${t.confirmLoan.confirm}\n2. ${t.confirmLoan.cancel}\n0. ${t.navigation.home}\n99. ${t.navigation.back}`;
     }
     case 'LOAN_STATUS': {
       const userLoans = MockDatabase.getLoans(currentSession.phoneNumber);

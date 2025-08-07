@@ -1,10 +1,40 @@
-import { type MockLoan } from '@/lib/mock-data';
+export interface Product {
+  id: string;
+  providerId: string;
+  name: string;
+  minAmount: number;
+  maxAmount: number;
+  interestRate: number; // e.g., 0.08 for 8%
+}
+
+export interface Provider {
+  id: string;
+  name: string;
+}
+
+export interface MockLoan {
+  id: string;
+  bankName: string;
+  productName: string;
+  amount: number;
+  interest: number;
+  repaid: number;
+  status: 'Active' | 'Paid Off';
+  date: Date;
+}
+
+export interface MockUser {
+  phoneNumber: string;
+  pin: string;
+  fayidaId: string;
+  isVerified: boolean;
+}
 
 export type Screen =
   | 'LANGUAGE_SELECT'
   | 'PIN'
   | 'HOME'
-  | 'CHOOSE_BANK'
+  | 'CHOOSE_PROVIDER'
   | 'CHOOSE_PRODUCT'
   | 'APPLY_LOAN_AMOUNT'
   | 'APPLY_LOAN_CONFIRM'
@@ -17,8 +47,10 @@ export type SessionData = {
   screen: Screen;
   pinAttempts: number;
   authenticated: boolean;
-  selectedBankName?: string;
-  selectedProductName?: string;
+  providers?: Provider[];
+  products?: Product[];
+  selectedProviderId?: string;
+  selectedProductId?: string;
   loanAmount?: number;
   repayLoans?: MockLoan[];
   selectedRepayLoanId?: string;

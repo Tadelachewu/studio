@@ -1,17 +1,19 @@
 import { getMenuText } from '@/lib/menu';
-import { mockBanks, MockDatabase } from '@/lib/mock-data';
+import { MockDatabase } from '@/lib/mock-data';
 import { sessionManager } from '@/lib/session';
 import { normalizePhoneNumber } from '@/lib/utils';
 import { SessionData } from '@/lib/types';
 import { translations } from '@/lib/translations';
+import { getProviders, getProducts } from './api';
 
-export function processUssdRequest(
+export async function processUssdRequest(
   sessionId: string,
   phoneNumber: string,
   userInput: string
-): string {
+): Promise<string> {
   console.log('[Handler] Processing request:', { sessionId, phoneNumber, userInput });
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  userInput = userInput.trim();
 
   let session = sessionManager.getSession(sessionId);
   let responsePrefix = 'CON';
@@ -111,6 +113,12 @@ export function processUssdRequest(
   const goHome = () => {
     console.log('[Handler] Navigating to HOME screen.');
     nextSession.screen = 'HOME';
+    // Clear transient data
+    delete nextSession.providers;
+    delete nextSession.products;
+    delete nextSession.selectedProviderId;
+    delete nextSession.selectedProductId;
+    delete nextSession.loanAmount;
   };
   
   // This check MUST come before the screen-specific logic
@@ -121,7 +129,7 @@ export function processUssdRequest(
       console.log(`[Handler] Going back from ${session.screen}`);
       switch (session.screen) {
         case 'CHOOSE_PRODUCT':
-          nextSession.screen = 'CHOOSE_BANK';
+          nextSession.screen = 'CHOOSE_PROVIDER';
           break;
         case 'APPLY_LOAN_AMOUNT':
           nextSession.screen = 'CHOOSE_PRODUCT';
@@ -132,7 +140,7 @@ export function processUssdRequest(
         case 'REPAY_ENTER_AMOUNT':
           nextSession.screen = 'REPAY_SELECT_LOAN';
           break;
-        case 'CHOOSE_BANK':
+        case 'CHOOSE_PROVIDER':
         case 'LOAN_STATUS':
         case 'REPAY_SELECT_LOAN':
         case 'LOAN_HISTORY':
@@ -144,6 +152,7 @@ export function processUssdRequest(
 
   // Only process screen-specific logic if we haven't already decided to navigate back/home
   if (nextSession.screen === session.screen) {
+    try {
     switch (session.screen) {
       case 'LANGUAGE_SELECT':
         // This case is now handled at the top, but we keep it to avoid falling through.
@@ -159,7 +168,8 @@ export function processUssdRequest(
       case 'HOME':
         switch (userInput) {
           case '1':
-            nextSession.screen = 'CHOOSE_BANK';
+            nextSession.screen = 'CHOOSE_PROVIDER';
+            nextSession.providers = await getProviders();
             break;
           case '2':
             nextSession.screen = 'LOAN_STATUS';
@@ -199,67 +209,64 @@ export function processUssdRequest(
         console.log(`[Handler] HOME selection: "${userInput}", next screen: "${nextSession.screen}"`);
         break;
 
-      case 'CHOOSE_BANK':
-        const bankChoice = parseInt(userInput) - 1;
-        if (bankChoice >= 0 && bankChoice < mockBanks.length) {
+      case 'CHOOSE_PROVIDER':
+        const providerChoice = parseInt(userInput) - 1;
+        const providers = session.providers || [];
+        if (providerChoice >= 0 && providerChoice < providers.length) {
             nextSession.screen = 'CHOOSE_PRODUCT';
-            nextSession.selectedBankName = mockBanks[bankChoice].name;
+            nextSession.selectedProviderId = providers[providerChoice].id;
+            nextSession.products = await getProducts(providers[providerChoice].id);
             nextSession.productPage = 0;
-            console.log(`[Handler] Bank chosen: "${nextSession.selectedBankName}"`);
+            console.log(`[Handler] Provider chosen: "${providers[providerChoice].name}"`);
         } else {
-          console.log('[Handler] Invalid bank choice.');
+          console.log('[Handler] Invalid provider choice.');
           responseMessage = t.errors.invalidChoice;
         }
         break;
 
       case 'CHOOSE_PRODUCT':
-        const bank = mockBanks.find((b) => b.name === session.selectedBankName);
-        if (bank) {
-          if (userInput === '8') {
-             const currentPage = nextSession.productPage || 0;
-             if ((currentPage + 1) * 2 < bank.loanProducts.length) {
-                nextSession.productPage = currentPage + 1;
-             }
-             break;
-          }
-          if (userInput === '7') {
-             const currentPage = nextSession.productPage || 0;
-             if (currentPage > 0) {
-                nextSession.productPage = currentPage - 1;
-             }
-             break;
-          }
-
-          const productChoice = parseInt(userInput) - 1;
-          const isValidProductChoice = productChoice >= 0 && productChoice < bank.loanProducts.length;
-
-          if (isValidProductChoice) {
-            const existingLoans = MockDatabase.getLoans(normalizedPhone);
-            const hasActiveLoan = existingLoans.some(loan => loan.status === 'Active');
-
-            if (hasActiveLoan) {
-              console.log('[Handler] User has an active loan and is trying to apply for a new one.');
-              responseMessage = t.errors.hasActiveLoan;
-              responsePrefix = 'END';
-              sessionManager.deleteSession(sessionId);
-            } else {
-              nextSession.screen = 'APPLY_LOAN_AMOUNT';
-              nextSession.selectedProductName = bank.loanProducts[productChoice].name;
-              console.log(`[Handler] Product chosen: "${nextSession.selectedProductName}"`);
+        const products = session.products || [];
+        if (userInput === '8') {
+            const currentPage = nextSession.productPage || 0;
+            if ((currentPage + 1) * 2 < products.length) {
+              nextSession.productPage = currentPage + 1;
             }
+            break;
+        }
+        if (userInput === '7') {
+            const currentPage = nextSession.productPage || 0;
+            if (currentPage > 0) {
+              nextSession.productPage = currentPage - 1;
+            }
+            break;
+        }
+
+        const productChoice = parseInt(userInput) - 1;
+        const isValidProductChoice = productChoice >= 0 && productChoice < products.length;
+
+        if (isValidProductChoice) {
+          const existingLoans = MockDatabase.getLoans(normalizedPhone);
+          const hasActiveLoan = existingLoans.some(loan => loan.status === 'Active');
+
+          if (hasActiveLoan) {
+            console.log('[Handler] User has an active loan and is trying to apply for a new one.');
+            responseMessage = t.errors.hasActiveLoan;
+            responsePrefix = 'END';
+            sessionManager.deleteSession(sessionId);
           } else {
-            console.log('[Handler] Invalid product choice.');
-            responseMessage = t.errors.invalidChoice;
+            nextSession.screen = 'APPLY_LOAN_AMOUNT';
+            nextSession.selectedProductId = products[productChoice].id;
+            console.log(`[Handler] Product chosen: "${products[productChoice].name}"`);
           }
+        } else {
+          console.log('[Handler] Invalid product choice.');
+          responseMessage = t.errors.invalidChoice;
         }
         break;
 
       case 'APPLY_LOAN_AMOUNT':
-        const currentBank = mockBanks.find(
-          (b) => b.name === session.selectedBankName
-        );
-        const currentProduct = currentBank?.loanProducts.find(
-          (p) => p.name === session.selectedProductName
+        const currentProduct = session.products?.find(
+            p => p.id === session.selectedProductId
         );
         const amount = parseFloat(userInput);
         if (
@@ -280,21 +287,20 @@ export function processUssdRequest(
       case 'APPLY_LOAN_CONFIRM':
         if (userInput === '1') {
           console.log('[Handler] User confirmed loan application.');
-          const { selectedBankName, selectedProductName, loanAmount } = session;
-          const product = mockBanks
-            .find((b) => b.name === selectedBankName)
-            ?.loanProducts.find((p) => p.name === selectedProductName);
+          const { selectedProviderId, selectedProductId, loanAmount } = session;
+          const provider = session.providers?.find(p => p.id === selectedProviderId);
+          const product = session.products?.find(p => p.id === selectedProductId);
           
-          if (selectedBankName && selectedProductName && loanAmount && product) {
+          if (provider && product && loanAmount) {
             console.log('[Handler] Adding loan to database.');
             MockDatabase.addLoan(
               normalizedPhone,
-              selectedBankName,
-              selectedProductName,
+              provider.name,
+              product.name,
               loanAmount,
               loanAmount * product.interestRate
             );
-            responseMessage = t.loanSuccess(loanAmount.toFixed(2), selectedProductName);
+            responseMessage = t.loanSuccess(loanAmount.toFixed(2), product.name);
             responsePrefix = 'END';
             sessionManager.deleteSession(sessionId);
           } else {
@@ -366,6 +372,11 @@ export function processUssdRequest(
       case 'LOAN_HISTORY':
         break;
     }
+   } catch (error) {
+        console.error('[Handler] An unexpected error occurred:', error);
+        responseMessage = t.errors.generic;
+        goHome();
+   }
   }
   
   if (responsePrefix !== 'END') {

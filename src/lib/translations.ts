@@ -7,7 +7,7 @@ export const translations = {
     loanSuccess: (amount: string, product: string) => `Loan application successful! Amount of ${amount} for ${product} has been credited to your account.`,
     loanCancelled: 'Loan application cancelled.',
     repaymentSuccess: (amount: string) => `Repayment of ${amount} was successful.`,
-    chooseBank: 'Select Loan Provider:',
+    chooseProvider: 'Select Loan Provider:',
     homeMenu: {
       title: 'Welcome to NIB Loan.',
       apply: 'Apply for Loan',
@@ -80,7 +80,7 @@ export const translations = {
     loanSuccess: (amount: string, product: string) => `የብድር ማመልከቻ ስኬታማ ነው! የ ${amount} ብር ለ ${product} ወደ ሂሳብዎ ገቢ ተደርጓል።`,
     loanCancelled: 'የብድር ማመልከቻ ተሰርዟል።',
     repaymentSuccess: (amount: string) => `የ ${amount} ብር ክፍያ በተሳካ ሁኔታ ተፈጽሟል።`,
-    chooseBank: 'የብድር አቅራቢ ይምረጡ:',
+    chooseProvider: 'የብድር አቅራቢ ይምረጡ:',
     homeMenu: {
       title: 'እንኳን ወደ NIB ብድር በደህና መጡ።',
       apply: 'ብድር ለማግኘት',
