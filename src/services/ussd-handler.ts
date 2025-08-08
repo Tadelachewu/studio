@@ -36,16 +36,20 @@ async function processIncomingRequest(
   // If it's a proxied request with a PIN and user is not authenticated yet, try to authenticate.
   if (isProxiedRequest && !session.authenticated) {
     const correctPin = MockDatabase.getPin(normalizedPhone);
+    const t = translations[session.language];
     if (correctPin && forwardedPin === correctPin) {
       console.log('[Handler] Authenticated via forwarded PIN from parent.');
       session.authenticated = true;
       session.screen = 'HOME'; // Go directly to home menu
       session.pinAttempts = 0;
-      const t = translations[session.language];
+      
       responseMessage = `${t.loginSuccess}\n`;
+      // Stop processing here and show the home menu directly.
+      sessionManager.updateSession(sessionId, session);
+      const menuText = getMenuText(session);
+      return `${responsePrefix} ${responseMessage}${menuText}`;
     } else {
       // If forwarded PIN is wrong, end the session.
-      const t = translations[session.language];
       console.log('[Handler] Invalid forwarded PIN. Ending session.');
       responsePrefix = 'END';
       responseMessage = t.errors.incorrectPin(1); // Show a generic pin error
@@ -230,7 +234,7 @@ async function processIncomingRequest(
           default:
             // For proxied requests, the initial userInput is from the parent and can be ignored here.
             // For direct requests, if the input is not empty and not a valid choice, show an error.
-            if (userInput !== '' && !isProxiedRequest) {
+            if (userInput !== '') {
                responseMessage = t.errors.invalidChoice;
             }
             break;
