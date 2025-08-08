@@ -1,3 +1,4 @@
+
 import { getMenuText } from '@/lib/menu';
 import { MockDatabase } from '@/lib/mock-data';
 import { sessionManager } from '@/lib/session';
@@ -24,7 +25,7 @@ async function processIncomingRequest(
   if (!session) {
     console.log('[Handler] No session found, creating a new one.');
     session = sessionManager.createSession(sessionId, normalizedPhone);
-    // If this is a proxied request, immediately set language and auth status
+    // If this is a proxied request, immediately set language
     if (forwardedLanguage) {
       session.language = forwardedLanguage === 'am' ? 'am' : 'en';
       console.log(`[Handler] Setting language from proxy: ${session.language}`);
@@ -54,24 +55,28 @@ async function processIncomingRequest(
 
   // Handle language selection as the very first step IF NOT a proxied request
   if (session.screen === 'LANGUAGE_SELECT' && !forwardedLanguage) {
-    if (userInput === '1') {
+     if (userInput === '1') {
       session.language = 'en';
       session.screen = 'PIN';
     } else if (userInput === '2') {
       session.language = 'am';
       session.screen = 'PIN';
     } else if (userInput === '') {
-      // User is seeing the prompt for the first time
+      // First time user is seeing the prompt, do nothing and let the menu text show.
     } else {
       // If the input is invalid
       responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
     }
     
+    // If the screen is still LANGUAGE_SELECT, it means we need to show the menu again.
+    // If the screen changed to PIN, it means a valid language was selected.
+    // In either case, we update the session and return the correct menu.
     sessionManager.updateSession(sessionId, session);
     const menuText = getMenuText(session);
     const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
     return `${responsePrefix} ${finalMessage}`;
   }
+
 
   const t = translations[session.language];
 
@@ -145,6 +150,7 @@ async function processIncomingRequest(
     delete nextSession.loanAmount;
   };
   
+  // This check MUST come before the screen-specific logic
   if (session.screen !== 'HOME' && session.screen !== 'PIN' && session.screen !== 'LANGUAGE_SELECT') {
     if (userInput === '0') {
       goHome();
@@ -163,6 +169,7 @@ async function processIncomingRequest(
         case 'REPAY_ENTER_AMOUNT':
           nextSession.screen = 'REPAY_SELECT_LOAN';
           break;
+        // For these screens, "Back" is equivalent to "Home"
         case 'CHOOSE_PROVIDER':
         case 'LOAN_STATUS':
         case 'REPAY_SELECT_LOAN':
@@ -173,12 +180,20 @@ async function processIncomingRequest(
     }
   }
 
+  // If the user used navigation (0 or 99), the screen has already changed.
+  // We only run the screen logic if the screen has NOT changed.
   if (nextSession.screen === session.screen) {
     try {
     switch (session.screen) {
       case 'LANGUAGE_SELECT':
+        // This case is now fully handled at the top of the function.
+        // If we reach here on this screen, something is wrong, go to PIN screen to be safe.
+        nextSession.screen = 'PIN';
         break;
       case 'PIN':
+        // This case is also mostly handled above.
+        // If we reach here, it means authentication was successful in this very request.
+        // The correct next screen ('HOME') is already set.
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
           nextSession.screen = 'HOME';
@@ -186,10 +201,14 @@ async function processIncomingRequest(
         break;
 
       case 'HOME':
-        const homeInput = forwardedPin ? text.split('*').pop() : userInput;
-        switch (homeInput) {
+        // If this was a proxied request, the userInput is the parent's choice
+        const homeInput = forwardedPin ? userInput : userInput;
+
+        // Map parent's choice "3" (Microloan) to child's choice "1" (Apply for Loan)
+        const effectiveInput = (forwardedPin && homeInput === '3') ? '1' : homeInput;
+
+        switch (effectiveInput) {
           case '1':
-          case '3': // Assuming '3' from parent maps to '1' here
             nextSession.screen = 'CHOOSE_PROVIDER';
             nextSession.providers = await getProviders();
             break;
@@ -220,13 +239,14 @@ async function processIncomingRequest(
             sessionManager.deleteSession(sessionId);
             break;
           default:
+            // Avoid showing "Invalid choice" on the same screen as "Login successful"
             if (responseMessage.includes(t.loginSuccess)) {
                break;
             }
             responseMessage = t.errors.invalidChoice;
             break;
         }
-        console.log(`[Handler] HOME selection: "${homeInput}", next screen: "${nextSession.screen}"`);
+        console.log(`[Handler] HOME selection: "${homeInput}", effective selection: "${effectiveInput}", next screen: "${nextSession.screen}"`);
         break;
 
       case 'CHOOSE_PROVIDER':
@@ -246,14 +266,14 @@ async function processIncomingRequest(
 
       case 'CHOOSE_PRODUCT':
         const products = session.products || [];
-        if (userInput === '8') {
+        if (userInput === '8') { // 'Next' for pagination
             const currentPage = nextSession.productPage || 0;
             if ((currentPage + 1) * 2 < products.length) {
               nextSession.productPage = currentPage + 1;
             }
             break;
         }
-        if (userInput === '7') {
+        if (userInput === '7') { // 'Prev' for pagination
             const currentPage = nextSession.productPage || 0;
             if (currentPage > 0) {
               nextSession.productPage = currentPage - 1;
@@ -290,7 +310,11 @@ async function processIncomingRequest(
         );
         const amount = parseFloat(userInput);
         if (
-          currentProduct &&
+          !currentProduct
+        ) {
+          responseMessage = t.errors.productNotFound;
+          goHome();
+        } else if (
           !isNaN(amount) &&
           amount >= currentProduct.minAmount &&
           amount <= currentProduct.maxAmount
@@ -300,7 +324,7 @@ async function processIncomingRequest(
           console.log(`[Handler] Loan amount entered: ${amount}`);
         } else {
           console.log(`[Handler] Invalid loan amount: ${userInput}`);
-          responseMessage = t.errors.invalidAmount(currentProduct?.minAmount, currentProduct?.maxAmount);
+          responseMessage = t.errors.invalidAmount(currentProduct.minAmount, currentProduct.maxAmount);
         }
         break;
 
@@ -338,7 +362,7 @@ async function processIncomingRequest(
         break;
 
       case 'LOAN_STATUS':
-        if (userInput === '9') {
+        if (userInput === '9') { // 'More' for pagination
           const userLoans = MockDatabase.getLoans(normalizedPhone);
           const pageSize = 2;
           if ((session.loanStatusPage + 1) * pageSize < userLoans.length) {
@@ -369,7 +393,10 @@ async function processIncomingRequest(
           (l) => l.id === session.selectedRepayLoanId
         );
         const repayAmount = parseFloat(userInput);
-        if (repayLoan) {
+        if (!repayLoan) {
+          responseMessage = t.errors.loanNotFound;
+          goHome();
+        } else {
           const outstanding =
             repayLoan.amount + repayLoan.interest - repayLoan.repaid;
           if (
@@ -390,6 +417,7 @@ async function processIncomingRequest(
         break;
 
       case 'LOAN_HISTORY':
+        // No user input is handled here, it just displays information.
         break;
     }
    } catch (error) {
@@ -406,11 +434,13 @@ async function processIncomingRequest(
     console.log('[Handler] Session ended.');
   }
   
+  // Do not show menu text if the session is ending.
   if (responsePrefix === 'END') {
     return `${responsePrefix} ${responseMessage}`;
   }
 
   const menuText = getMenuText(nextSession);
+  // Prepend the response message only if it's not empty
   const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
   
   return `${responsePrefix} ${finalMessage}`;
@@ -420,8 +450,10 @@ export async function processUssdRequest(
   sessionId: string,
   phoneNumber: string,
   text: string,
-  forwardedPin?: string | null,
-  forwardedLanguage?: string | null
+  forwardedPin: string | null = null,
+  forwardedLanguage: string | null = null,
 ): Promise<string> {
     return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
 }
+
+    
