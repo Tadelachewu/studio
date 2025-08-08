@@ -28,7 +28,6 @@ async function processIncomingRequest(
   }
 
   // --- Integration Logic: Handle forwarded request from parent USSD ---
-  // This block runs only ONCE at the beginning of a forwarded session.
   if (forwardedPin && forwardedLanguage && !session.authenticated) {
     console.log('[Handler] Forwarded session detected. Authenticating...');
     const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
@@ -56,7 +55,7 @@ async function processIncomingRequest(
     } else if (userInput === '2') {
       session.language = 'am';
       session.screen = 'PIN';
-    } else if (userInput !== '') {
+    } else if (text.trim() !== '') { // Only show error if there was some input
       responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
     }
     
@@ -115,11 +114,15 @@ async function processIncomingRequest(
       }
     }
     
-    if (!session.authenticated && responsePrefix !== 'END') {
-      console.log('[Handler] Staying on PIN screen.');
+    if (responsePrefix !== 'END') {
       sessionManager.updateSession(sessionId, session);
-      const menuText = getMenuText(session);
-      return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
+      if (!session.authenticated) {
+          console.log('[Handler] Staying on PIN screen.');
+          const menuText = getMenuText(session);
+          return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
+      }
+    } else {
+        return `${responsePrefix} ${responseMessage}`;
     }
   }
 
@@ -136,6 +139,7 @@ async function processIncomingRequest(
     delete nextSession.loanAmount;
   };
   
+  // Navigation (0 and 99) is handled globally for all screens after the main menu
   if (session.screen !== 'HOME' && session.screen !== 'PIN' && session.screen !== 'LANGUAGE_SELECT') {
     if (userInput === '0') {
       goHome();
@@ -154,6 +158,7 @@ async function processIncomingRequest(
         case 'REPAY_ENTER_AMOUNT':
           nextSession.screen = 'REPAY_SELECT_LOAN';
           break;
+        // For these screens, "Back" is equivalent to "Home"
         case 'CHOOSE_PROVIDER':
         case 'LOAN_STATUS':
         case 'REPAY_SELECT_LOAN':
@@ -164,17 +169,10 @@ async function processIncomingRequest(
     }
   }
 
+  // Only process screen logic if we haven't already handled navigation
   if (nextSession.screen === session.screen) {
     try {
       switch (session.screen) {
-        case 'LANGUAGE_SELECT':
-        case 'PIN':
-          if (session.authenticated) {
-            console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
-            nextSession.screen = 'HOME';
-          }
-          break;
-
         case 'HOME':
           console.log(`[Handler] HOME selection: "${userInput}"`);
           switch (userInput) {
@@ -257,14 +255,14 @@ async function processIncomingRequest(
 
         case 'CHOOSE_PRODUCT':
           const products = session.products || [];
-          if (userInput === '8') {
+          if (userInput === '8') { // Next
               const currentPage = nextSession.productPage || 0;
               if ((currentPage + 1) * 2 < products.length) {
                 nextSession.productPage = currentPage + 1;
               }
               break;
           }
-          if (userInput === '7') {
+          if (userInput === '7') { // Previous
               const currentPage = nextSession.productPage || 0;
               if (currentPage > 0) {
                 nextSession.productPage = currentPage - 1;
@@ -290,9 +288,7 @@ async function processIncomingRequest(
               p => p.id === session.selectedProductId
           );
           const amount = parseFloat(userInput);
-          if (
-            !currentProduct
-          ) {
+          if (!currentProduct) {
             responseMessage = t.errors.productNotFound;
             goHome();
           } else if (
@@ -343,7 +339,7 @@ async function processIncomingRequest(
           break;
 
         case 'LOAN_STATUS':
-          if (userInput === '9') {
+          if (userInput === '9') { // More
             const userLoans = MockDatabase.getLoans(normalizedPhone);
             const pageSize = 2;
             const currentPage = session.loanStatusPage || 0;
@@ -400,6 +396,7 @@ async function processIncomingRequest(
 
         case 'LOAN_HISTORY':
           // No user input is handled here, it just displays information.
+          // Navigation to home (0) is handled globally.
           break;
       }
     } catch (error) {
@@ -435,5 +432,3 @@ export async function processUssdRequest(
 ): Promise<string> {
     return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
 }
-
-    
