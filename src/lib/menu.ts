@@ -117,3 +117,5 @@ export function getMenuText(currentSession: SessionData): string {
       return `${t.errors.invalidScreen}\n0. ${t.navigation.exit}`;
   }
 }
+
+    

@@ -3,7 +3,7 @@ import { getMenuText } from '@/lib/menu';
 import { MockDatabase } from '@/lib/mock-data';
 import { sessionManager } from '@/lib/session';
 import { normalizePhoneNumber } from '@/lib/utils';
-import { SessionData } from '@/lib/types';
+import { type SessionData } from '@/lib/types';
 import { translations } from '@/lib/translations';
 import { getProviders, getProducts } from './api';
 
@@ -28,6 +28,7 @@ async function processIncomingRequest(
   }
 
   // --- Integration Logic: Handle forwarded request from parent USSD ---
+  // This block runs only ONCE at the beginning of a forwarded session.
   if (forwardedPin && forwardedLanguage && !session.authenticated) {
     console.log('[Handler] Forwarded session detected. Authenticating...');
     const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
@@ -40,14 +41,14 @@ async function processIncomingRequest(
       const t = translations[session.language];
       responseMessage = `${t.loginSuccess}\n`;
       sessionManager.updateSession(sessionId, session);
-      // Immediately return the home menu, ignoring the user's last input ('3') from the parent menu
+      // Immediately return the home menu, ignoring the parent's input ('3')
       const menuText = getMenuText(session);
       return `${responsePrefix} ${responseMessage}${menuText}`;
     }
   }
   // --- End of Integration Logic ---
 
-  // Handle language selection if not authenticated
+  // Handle language selection if not authenticated (for direct access)
   if (session.screen === 'LANGUAGE_SELECT') {
     if (userInput === '1') {
       session.language = 'en';
@@ -56,7 +57,6 @@ async function processIncomingRequest(
       session.language = 'am';
       session.screen = 'PIN';
     } else if (userInput !== '') {
-      // If the input is invalid and not the initial empty request
       responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
     }
     
@@ -88,7 +88,6 @@ async function processIncomingRequest(
   
   if (!session.authenticated) {
     console.log('[Handler] User not authenticated. Checking PIN.');
-    // Do not process empty input on the PIN screen after a failed attempt
     if (userInput !== '') {
       const isPinFormatValid = /^\d{4}$/.test(userInput);
       if (!isPinFormatValid) {
@@ -137,7 +136,6 @@ async function processIncomingRequest(
     delete nextSession.loanAmount;
   };
   
-  // Back and Home navigation should be handled before processing the screen-specific logic
   if (session.screen !== 'HOME' && session.screen !== 'PIN' && session.screen !== 'LANGUAGE_SELECT') {
     if (userInput === '0') {
       goHome();
@@ -156,7 +154,7 @@ async function processIncomingRequest(
         case 'REPAY_ENTER_AMOUNT':
           nextSession.screen = 'REPAY_SELECT_LOAN';
           break;
-        case 'CHOOSE_PROVIDER': // From provider list, back goes to home
+        case 'CHOOSE_PROVIDER':
         case 'LOAN_STATUS':
         case 'REPAY_SELECT_LOAN':
         case 'LOAN_HISTORY':
@@ -166,13 +164,11 @@ async function processIncomingRequest(
     }
   }
 
-  // Only process screen logic if the screen hasn't changed due to navigation
   if (nextSession.screen === session.screen) {
     try {
       switch (session.screen) {
         case 'LANGUAGE_SELECT':
         case 'PIN':
-          // This case will now only be hit after successful auth.
           if (session.authenticated) {
             console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
             nextSession.screen = 'HOME';
@@ -261,14 +257,14 @@ async function processIncomingRequest(
 
         case 'CHOOSE_PRODUCT':
           const products = session.products || [];
-          if (userInput === '8') { // 'Next' for pagination
+          if (userInput === '8') {
               const currentPage = nextSession.productPage || 0;
               if ((currentPage + 1) * 2 < products.length) {
                 nextSession.productPage = currentPage + 1;
               }
               break;
           }
-          if (userInput === '7') { // 'Prev' for pagination
+          if (userInput === '7') {
               const currentPage = nextSession.productPage || 0;
               if (currentPage > 0) {
                 nextSession.productPage = currentPage - 1;
@@ -347,11 +343,12 @@ async function processIncomingRequest(
           break;
 
         case 'LOAN_STATUS':
-          if (userInput === '9') { // 'More' for pagination
+          if (userInput === '9') {
             const userLoans = MockDatabase.getLoans(normalizedPhone);
             const pageSize = 2;
-            if ((session.loanStatusPage + 1) * pageSize < userLoans.length) {
-              nextSession.loanStatusPage = session.loanStatusPage + 1;
+            const currentPage = session.loanStatusPage || 0;
+            if ((currentPage + 1) * pageSize < userLoans.length) {
+              nextSession.loanStatusPage = currentPage + 1;
               console.log(`[Handler] Paginating loan status to page ${nextSession.loanStatusPage}`);
             }
           }
