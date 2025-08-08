@@ -41,7 +41,7 @@ async function processIncomingRequest(
       const t = translations[session.language];
       responseMessage = `${t.loginSuccess}\n`;
       sessionManager.updateSession(sessionId, session);
-      // Immediately return the home menu, ignoring the parent's input ('3')
+      // Immediately return the home menu after successful forwarded login
       const menuText = getMenuText(session);
       return `${responsePrefix} ${responseMessage}${menuText}`;
     }
