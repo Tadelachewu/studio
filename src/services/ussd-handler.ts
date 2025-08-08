@@ -39,10 +39,6 @@ async function processIncomingRequest(
       session.pinAttempts = 0;
       const t = translations[session.language];
       responseMessage = `${t.loginSuccess}\n`;
-      sessionManager.updateSession(sessionId, session);
-      // Immediately return the home menu after successful forwarded login
-      const menuText = getMenuText(session);
-      return `${responsePrefix} ${responseMessage}${menuText}`;
     }
   }
   // --- End of Integration Logic ---
