@@ -455,5 +455,3 @@ export async function processUssdRequest(
 ): Promise<string> {
     return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
 }
-
-    
