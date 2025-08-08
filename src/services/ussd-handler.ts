@@ -42,10 +42,7 @@ async function processIncomingRequest(
       session.screen = 'HOME'; // Go directly to home menu
       session.pinAttempts = 0;
       const t = translations[session.language];
-      // Add login success message only if we aren't immediately showing another message.
-      if (userInput !== '3') {
-          responseMessage = `${t.loginSuccess}\n`;
-      }
+      responseMessage = `${t.loginSuccess}\n`;
     } else {
       // If forwarded PIN is wrong, end the session.
       const t = translations[session.language];
@@ -57,10 +54,8 @@ async function processIncomingRequest(
     }
   }
   
-  // The logic inside this block should only run if the session is *not* a proxied one,
-  // or if it's the very first request of a proxied session.
-  // After the first proxied request, the session's screen will no longer be 'HOME' or 'PIN'.
-  if (!isProxiedRequest || (isProxiedRequest && session.screen === 'HOME')) {
+  // The logic inside this block should only run if the session is *not* a proxied one
+  if (!isProxiedRequest) {
       // Handle language selection as the very first step IF NOT a proxied request
       if (session.screen === 'LANGUAGE_SELECT' && !forwardedLanguage) {
         if (userInput === '1') {
@@ -69,10 +64,8 @@ async function processIncomingRequest(
         } else if (userInput === '2') {
           session.language = 'am';
           session.screen = 'PIN';
-        } else if (userInput === '') {
-          // First time user is seeing the prompt, do nothing and let the menu text show.
-        } else {
-          // If the input is invalid
+        } else if (userInput !== '') {
+          // If the input is invalid and not the initial empty request
           responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
         }
         
@@ -191,6 +184,7 @@ async function processIncomingRequest(
     switch (session.screen) {
       case 'LANGUAGE_SELECT':
       case 'PIN':
+        // This case will now only be hit for non-proxied requests that have just authenticated.
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
           nextSession.screen = 'HOME';
@@ -198,19 +192,11 @@ async function processIncomingRequest(
         break;
 
       case 'HOME':
-        // If this was a proxied request, the userInput is the parent's choice
-        // Map parent's choice "3" (Microloan) to child's choice "1" (Apply for Loan)
-        const effectiveInput = (isProxiedRequest && userInput === '3') ? '1' : userInput;
-        console.log(`[Handler] HOME selection: "${userInput}", effective selection: "${effectiveInput}"`);
+        console.log(`[Handler] HOME selection: "${userInput}"`);
 
-        switch (effectiveInput) {
+        switch (userInput) {
           case '1':
             console.log('[Handler] Starting loan application flow.');
-            const t = translations[session.language];
-            // Add login success message if it's a proxied request jumping straight here
-            if (isProxiedRequest && userInput === '3') {
-                responseMessage = `${t.loginSuccess}\n`;
-            }
             nextSession.screen = 'CHOOSE_PROVIDER';
             nextSession.providers = await getProviders();
             console.log('[Handler] Fetched providers:', nextSession.providers);
@@ -242,7 +228,9 @@ async function processIncomingRequest(
             sessionManager.deleteSession(sessionId);
             break;
           default:
-            if (!responseMessage.includes(t.loginSuccess)) {
+            // For proxied requests, the initial userInput is from the parent and can be ignored here.
+            // For direct requests, if the input is not empty and not a valid choice, show an error.
+            if (userInput !== '' && !isProxiedRequest) {
                responseMessage = t.errors.invalidChoice;
             }
             break;
@@ -454,5 +442,3 @@ export async function processUssdRequest(
 ): Promise<string> {
     return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
 }
-
-    
