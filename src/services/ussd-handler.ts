@@ -10,11 +10,9 @@ import { getProviders, getProducts } from './api';
 async function processIncomingRequest(
   sessionId: string,
   phoneNumber: string,
-  text: string,
-  forwardedPin: string | null,
-  forwardedLanguage: 'en' | 'am' | null
+  text: string
 ): Promise<string> {
-  console.log('[Handler] Processing request:', { sessionId, phoneNumber, text, forwardedPin, forwardedLanguage });
+  console.log('[Handler] Processing request:', { sessionId, phoneNumber, text });
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
   const userInput = text.split('*').pop()?.trim() || '';
 
@@ -27,23 +25,7 @@ async function processIncomingRequest(
     session = sessionManager.createSession(sessionId, normalizedPhone);
   }
 
-  // --- Integration Logic: Handle forwarded request from parent USSD ---
-  if (forwardedPin && forwardedLanguage && !session.authenticated) {
-    console.log('[Handler] Forwarded session detected. Authenticating...');
-    const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
-    const correctPin = MockDatabase.getPin(normalizedPhone);
-    if (user && correctPin === forwardedPin) {
-      session.authenticated = true;
-      session.language = forwardedLanguage;
-      session.screen = 'HOME';
-      session.pinAttempts = 0;
-      const t = translations[session.language];
-      responseMessage = `${t.loginSuccess}\n`;
-    }
-  }
-  // --- End of Integration Logic ---
-
-  // Handle language selection if not authenticated (for direct access)
+  // Handle language selection
   if (session.screen === 'LANGUAGE_SELECT') {
     if (userInput === '1') {
       session.language = 'en';
@@ -60,7 +42,7 @@ async function processIncomingRequest(
     const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
     return `${responsePrefix} ${finalMessage}`;
   }
-
+  
   const t = translations[session.language];
 
   const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
@@ -112,8 +94,13 @@ async function processIncomingRequest(
     
     if (responsePrefix !== 'END') {
       sessionManager.updateSession(sessionId, session);
+      if (!session.authenticated && userInput === '') {
+          console.log('[Handler] Staying on PIN screen, no input yet.');
+          const menuText = getMenuText(session);
+          return `${responsePrefix} ${menuText}`;
+      }
       if (!session.authenticated) {
-          console.log('[Handler] Staying on PIN screen.');
+          console.log('[Handler] Staying on PIN screen after invalid input.');
           const menuText = getMenuText(session);
           return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
       }
@@ -133,6 +120,7 @@ async function processIncomingRequest(
     delete nextSession.selectedProviderId;
     delete nextSession.selectedProductId;
     delete nextSession.loanAmount;
+    delete nextSession.productPage;
   };
   
   // Navigation (0 and 99) is handled globally for all screens after the main menu
@@ -144,6 +132,8 @@ async function processIncomingRequest(
       switch (session.screen) {
         case 'CHOOSE_PRODUCT':
           nextSession.screen = 'CHOOSE_PROVIDER';
+          delete nextSession.products;
+          delete nextSession.productPage;
           break;
         case 'APPLY_LOAN_AMOUNT':
           nextSession.screen = 'CHOOSE_PRODUCT';
@@ -182,14 +172,15 @@ async function processIncomingRequest(
                   sessionManager.deleteSession(sessionId);
               } else {
                   console.log('[Handler] Starting loan application flow.');
-                  nextSession.screen = 'CHOOSE_PROVIDER';
                   try {
                       nextSession.providers = await getProviders();
                       console.log('[Handler] Fetched providers:', nextSession.providers);
+                      nextSession.screen = 'CHOOSE_PROVIDER';
                   } catch (apiError) {
                       console.error('[Handler] API Error fetching providers:', apiError);
                       responseMessage = t.errors.generic;
-                      goHome();
+                      responsePrefix = 'END'; // End the session on API failure
+                      sessionManager.deleteSession(sessionId);
                   }
               }
               break;
@@ -220,7 +211,7 @@ async function processIncomingRequest(
               sessionManager.deleteSession(sessionId);
               break;
             default:
-              if (userInput !== '') {
+              if (userInput !== '' && responseMessage === '') {
                  responseMessage = t.errors.invalidChoice;
               }
               break;
@@ -232,18 +223,18 @@ async function processIncomingRequest(
           const providerChoice = parseInt(userInput) - 1;
           const providers = session.providers || [];
           if (providerChoice >= 0 && providerChoice < providers.length) {
-              nextSession.screen = 'CHOOSE_PRODUCT';
               nextSession.selectedProviderId = providers[providerChoice].id;
+              console.log(`[Handler] Provider chosen: "${providers[providerChoice].name}"`);
               try {
                   nextSession.products = await getProducts(providers[providerChoice].id);
                   nextSession.productPage = 0;
-                  console.log(`[Handler] Provider chosen: "${providers[providerChoice].name}"`);
+                  nextSession.screen = 'CHOOSE_PRODUCT';
               } catch (apiError) {
                   console.error('[Handler] API Error fetching products:', apiError);
                   responseMessage = t.errors.generic;
                   goHome();
               }
-          } else {
+          } else if (userInput !== '') {
             console.log('[Handler] Invalid provider choice.');
             responseMessage = t.errors.invalidChoice;
           }
@@ -273,7 +264,7 @@ async function processIncomingRequest(
             nextSession.screen = 'APPLY_LOAN_AMOUNT';
             nextSession.selectedProductId = products[productChoice].id;
             console.log(`[Handler] Product chosen: "${products[productChoice].name}"`);
-          } else {
+          } else if (userInput !== '') {
             console.log('[Handler] Invalid product choice.');
             responseMessage = t.errors.invalidChoice;
           }
@@ -295,7 +286,7 @@ async function processIncomingRequest(
             nextSession.screen = 'APPLY_LOAN_CONFIRM';
             nextSession.loanAmount = amount;
             console.log(`[Handler] Loan amount entered: ${amount}`);
-          } else {
+          } else if (userInput !== '') {
             console.log(`[Handler] Invalid loan amount: ${userInput}`);
             responseMessage = t.errors.invalidAmount(currentProduct.minAmount, currentProduct.maxAmount);
           }
@@ -329,7 +320,7 @@ async function processIncomingRequest(
             console.log('[Handler] User cancelled loan application.');
             responseMessage = t.loanCancelled;
             goHome();
-          } else {
+          } else if (userInput !== '') {
             responseMessage = t.errors.invalidChoice;
           }
           break;
@@ -356,7 +347,7 @@ async function processIncomingRequest(
             nextSession.screen = 'REPAY_ENTER_AMOUNT';
             nextSession.selectedRepayLoanId = session.repayLoans[repayChoice].id;
             console.log(`[Handler] Selected loan to repay: ID ${nextSession.selectedRepayLoanId}`);
-          } else {
+          } else if (userInput !== '') {
             console.log('[Handler] Invalid loan selection for repayment.');
             responseMessage = t.errors.invalidChoice;
           }
@@ -383,7 +374,7 @@ async function processIncomingRequest(
               responseMessage = t.repaymentSuccess(repayAmount.toFixed(2));
               responsePrefix = 'END';
               sessionManager.deleteSession(sessionId);
-            } else {
+            } else if (userInput !== '') {
               console.log(`[Handler] Invalid repayment amount: ${repayAmount}`);
               responseMessage = t.errors.invalidRepayment(outstanding.toFixed(2));
             }
@@ -426,5 +417,7 @@ export async function processUssdRequest(
   forwardedPin: string | null,
   forwardedLanguage: 'en' | 'am' | null
 ): Promise<string> {
-    return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
+  // This is a standalone app, so we can ignore the forwarded parameters for now.
+  // The logic for handling them can be re-added if direct integration is needed again.
+  return await processIncomingRequest(sessionId, phoneNumber, text);
 }
