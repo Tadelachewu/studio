@@ -202,7 +202,7 @@ async function processIncomingRequest(
 
       case 'HOME':
         // If this was a proxied request, the userInput is the parent's choice
-        const homeInput = forwardedPin ? userInput : userInput;
+        const homeInput = userInput;
 
         // Map parent's choice "3" (Microloan) to child's choice "1" (Apply for Loan)
         const effectiveInput = (forwardedPin && homeInput === '3') ? '1' : homeInput;
