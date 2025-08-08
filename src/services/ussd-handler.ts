@@ -7,12 +7,17 @@ import { type SessionData } from '@/lib/types';
 import { translations } from '@/lib/translations';
 import { getProviders, getProducts } from './api';
 
-async function processIncomingRequest(
+/**
+ * Processes a USSD request that may have been forwarded from a parent application.
+ * It handles the initial handoff and all subsequent user interactions.
+ */
+async function processProxiedRequest(
   sessionId: string,
   phoneNumber: string,
-  text: string
+  text: string,
+  forwardedPin: string | null,
+  forwardedLanguage: 'en' | 'am' | null
 ): Promise<string> {
-  console.log('[Handler] Processing request:', { sessionId, phoneNumber, text });
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
   const userInput = text.split('*').pop()?.trim() || '';
 
@@ -20,12 +25,50 @@ async function processIncomingRequest(
   let responsePrefix = 'CON';
   let responseMessage = '';
 
-  if (!session) {
-    console.log('[Handler] No session found, creating a new one.');
+  // --- Handoff Logic ---
+  // If there's no session, but we received forwarded data, it's a handoff.
+  if (!session && forwardedPin && forwardedLanguage) {
+    console.log('[Handler] Handoff detected. Creating and authenticating session.');
+    
+    // Create a new session
+    session = sessionManager.createSession(sessionId, normalizedPhone);
+    session.language = forwardedLanguage;
+
+    // Check if the user is registered and verified
+    const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
+    const t = translations[session.language];
+    if (!user) {
+      return `END ${t.errors.notRegistered}`;
+    }
+    if (!user.isVerified) {
+      return `END ${t.errors.notVerified}`;
+    }
+
+    // Authenticate with the forwarded PIN
+    const correctPin = MockDatabase.getPin(normalizedPhone);
+    if (correctPin && forwardedPin === correctPin) {
+      session.authenticated = true;
+      session.screen = 'HOME';
+      responseMessage = `${t.loginSuccess}\n`;
+    } else {
+      // If the forwarded PIN is wrong, end the session.
+      // The user must restart from the parent app.
+      return `END ${t.errors.incorrectPin(1).split(':')[0]}`;
+    }
+    
+    // We have authenticated and are ready to show the home screen.
+    // The rest of the function will handle generating the menu text.
+  } else if (!session) {
+    // If there's no session and no forwarded data, start a normal flow.
     session = sessionManager.createSession(sessionId, normalizedPhone);
   }
 
-  // Handle language selection
+  // If we are here, we have a session.
+  // The rest of the logic is the standard USSD flow.
+  const t = translations[session.language];
+
+  // --- Standard USSD Flow (Language, PIN, Main Logic) ---
+
   if (session.screen === 'LANGUAGE_SELECT') {
     if (userInput === '1') {
       session.language = 'en';
@@ -33,155 +76,82 @@ async function processIncomingRequest(
     } else if (userInput === '2') {
       session.language = 'am';
       session.screen = 'PIN';
-    } else if (text.trim() !== '') { // Only show error if there was some input
-      responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
+    } else if (text.trim() !== '') {
+      responseMessage = translations.en.errors.invalidLanguageChoice;
     }
-    
     sessionManager.updateSession(sessionId, session);
     const menuText = getMenuText(session);
-    const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
-    return `${responsePrefix} ${finalMessage}`;
+    return `CON ${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
   }
-  
-  const t = translations[session.language];
 
   const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
   if (!user) {
-    console.log(`[Handler] User not found for phone: ${normalizedPhone}. Ending session.`);
-    responsePrefix = 'END';
-    responseMessage = t.errors.notRegistered;
     sessionManager.deleteSession(sessionId);
-    return `${responsePrefix} ${responseMessage}`;
+    return `END ${t.errors.notRegistered}`;
   }
-  console.log('[Handler] User found:', { phoneNumber: user.phoneNumber, isVerified: user.isVerified });
-
   if (!user.isVerified) {
-    console.log('[Handler] User is not verified. Ending session.');
-    responsePrefix = 'END';
-    responseMessage = t.errors.notVerified;
     sessionManager.deleteSession(sessionId);
-    return `${responsePrefix} ${responseMessage}`;
+    return `END ${t.errors.notVerified}`;
   }
-  
+
   if (!session.authenticated) {
-    console.log('[Handler] User not authenticated. Checking PIN.');
-    if (userInput !== '') {
-      const isPinFormatValid = /^\d{4}$/.test(userInput);
-      if (!isPinFormatValid) {
+    if (userInput) {
+      if (!/^\d{4}$/.test(userInput)) {
         responseMessage = t.errors.invalidPinFormat;
       } else {
         const correctPin = MockDatabase.getPin(normalizedPhone);
         if (correctPin && userInput === correctPin) {
-          console.log('[Handler] PIN correct. Authenticating session.');
           session.authenticated = true;
           session.screen = 'HOME';
           session.pinAttempts = 0;
           responseMessage = `${t.loginSuccess}\n`;
         } else {
           session.pinAttempts++;
-          console.log(`[Handler] Incorrect PIN. Attempt ${session.pinAttempts}.`);
           if (session.pinAttempts >= 3) {
-            console.log('[Handler] Too many PIN attempts. Ending session.');
-            responseMessage = t.errors.tooManyPinAttempts;
-            responsePrefix = 'END';
             sessionManager.deleteSession(sessionId);
-          } else {
-            responseMessage = t.errors.incorrectPin(session.pinAttempts);
+            return `END ${t.errors.tooManyPinAttempts}`;
           }
+          responseMessage = t.errors.incorrectPin(session.pinAttempts);
         }
       }
     }
     
-    if (responsePrefix !== 'END') {
-      sessionManager.updateSession(sessionId, session);
-      if (!session.authenticated && userInput === '') {
-          console.log('[Handler] Staying on PIN screen, no input yet.');
-          const menuText = getMenuText(session);
-          return `${responsePrefix} ${menuText}`;
-      }
-      if (!session.authenticated) {
-          console.log('[Handler] Staying on PIN screen after invalid input.');
-          const menuText = getMenuText(session);
-          return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
-      }
-    } else {
-        return `${responsePrefix} ${responseMessage}`;
+    if (!session.authenticated) {
+       sessionManager.updateSession(sessionId, session);
+       const menuText = getMenuText(session);
+       return `CON ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
     }
   }
-
-  let nextSession: SessionData = { ...session };
-  console.log(`[Handler] Processing screen: "${session.screen}" with input: "${userInput}"`);
-
-  const goHome = () => {
-    console.log('[Handler] Navigating to HOME screen.');
-    nextSession.screen = 'HOME';
-    delete nextSession.providers;
-    delete nextSession.products;
-    delete nextSession.selectedProviderId;
-    delete nextSession.selectedProductId;
-    delete nextSession.loanAmount;
-    delete nextSession.productPage;
-  };
   
-  // Navigation (0 and 99) is handled globally for all screens after the main menu
-  if (session.screen !== 'HOME' && session.screen !== 'PIN' && session.screen !== 'LANGUAGE_SELECT') {
-    if (userInput === '0') {
-      goHome();
-    } else if (userInput === '99') {
-      console.log(`[Handler] Going back from ${session.screen}`);
-      switch (session.screen) {
-        case 'CHOOSE_PRODUCT':
-          nextSession.screen = 'CHOOSE_PROVIDER';
-          delete nextSession.products;
-          delete nextSession.productPage;
-          break;
-        case 'APPLY_LOAN_AMOUNT':
-          nextSession.screen = 'CHOOSE_PRODUCT';
-          break;
-        case 'APPLY_LOAN_CONFIRM':
-          nextSession.screen = 'APPLY_LOAN_AMOUNT';
-          break;
-        case 'REPAY_ENTER_AMOUNT':
-          nextSession.screen = 'REPAY_SELECT_LOAN';
-          break;
-        // For these screens, "Back" is equivalent to "Home"
-        case 'CHOOSE_PROVIDER':
-        case 'LOAN_STATUS':
-        case 'REPAY_SELECT_LOAN':
-        case 'LOAN_HISTORY':
-          goHome();
-          break;
-      }
-    }
-  }
+  // --- Main Application Logic ---
+  let nextSession: SessionData = { ...session };
+  const goHome = () => { nextSession.screen = 'HOME'; };
 
-  // Only process screen logic if we haven't already handled navigation
-  if (nextSession.screen === session.screen) {
+  // Global navigation (0 for Home, 99 for Back)
+  if (session.screen !== 'HOME' && userInput === '0') {
+    goHome();
+  } else if (session.screen !== 'HOME' && userInput === '99') {
+    switch (session.screen) {
+      case 'CHOOSE_PRODUCT': nextSession.screen = 'CHOOSE_PROVIDER'; break;
+      case 'APPLY_LOAN_AMOUNT': nextSession.screen = 'CHOOSE_PRODUCT'; break;
+      case 'APPLY_LOAN_CONFIRM': nextSession.screen = 'APPLY_LOAN_AMOUNT'; break;
+      case 'REPAY_ENTER_AMOUNT': nextSession.screen = 'REPAY_SELECT_LOAN'; break;
+      default: goHome(); break;
+    }
+  } else {
+    // Screen-specific logic
     try {
       switch (session.screen) {
         case 'HOME':
-          console.log(`[Handler] HOME selection: "${userInput}"`);
           switch (userInput) {
             case '1':
               const existingLoans = MockDatabase.getLoans(normalizedPhone);
-              const hasActiveLoan = existingLoans.some(loan => loan.status === 'Active');
-              if (hasActiveLoan) {
-                  console.log('[Handler] User has an active loan.');
-                  responseMessage = t.errors.hasActiveLoan;
-                  responsePrefix = 'END';
-                  sessionManager.deleteSession(sessionId);
+              if (existingLoans.some(loan => loan.status === 'Active')) {
+                responseMessage = t.errors.hasActiveLoan;
+                responsePrefix = 'END';
               } else {
-                  console.log('[Handler] Starting loan application flow.');
-                  try {
-                      nextSession.providers = await getProviders();
-                      console.log('[Handler] Fetched providers:', nextSession.providers);
-                      nextSession.screen = 'CHOOSE_PROVIDER';
-                  } catch (apiError) {
-                      console.error('[Handler] API Error fetching providers:', apiError);
-                      responseMessage = t.errors.generic;
-                      responsePrefix = 'END'; // End the session on API failure
-                      sessionManager.deleteSession(sessionId);
-                  }
+                  nextSession.providers = await getProviders();
+                  nextSession.screen = 'CHOOSE_PROVIDER';
               }
               break;
             case '2':
@@ -190,17 +160,12 @@ async function processIncomingRequest(
               break;
             case '3':
               nextSession.screen = 'REPAY_SELECT_LOAN';
-              nextSession.repayLoans = MockDatabase.getLoans(
-                normalizedPhone
-              ).filter(
-                (l) => l.status === 'Active' && l.amount + l.interest - l.repaid > 0
-              );
+              nextSession.repayLoans = MockDatabase.getLoans(normalizedPhone).filter(l => l.status === 'Active');
               break;
             case '4':
               const balance = MockDatabase.getBalance(normalizedPhone);
               responseMessage = t.balance(balance.toFixed(2));
               responsePrefix = 'END';
-              sessionManager.deleteSession(sessionId);
               break;
             case '5':
               nextSession.screen = 'LOAN_HISTORY';
@@ -208,119 +173,75 @@ async function processIncomingRequest(
             case '0':
               responseMessage = t.exitMessage;
               responsePrefix = 'END';
-              sessionManager.deleteSession(sessionId);
               break;
             default:
-              if (userInput !== '' && responseMessage === '') {
-                 responseMessage = t.errors.invalidChoice;
+              // For forwarded sessions, the initial userInput might be from the parent menu
+              // We want to ignore it and just show the home menu.
+              if (userInput && !(forwardedPin && session.screen === 'HOME')) {
+                responseMessage = t.errors.invalidChoice;
               }
               break;
           }
-          console.log(`[Handler] Next screen after HOME: "${nextSession.screen}"`);
           break;
 
         case 'CHOOSE_PROVIDER':
           const providerChoice = parseInt(userInput) - 1;
-          const providers = session.providers || [];
-          if (providerChoice >= 0 && providerChoice < providers.length) {
-              nextSession.selectedProviderId = providers[providerChoice].id;
-              console.log(`[Handler] Provider chosen: "${providers[providerChoice].name}"`);
-              try {
-                  nextSession.products = await getProducts(providers[providerChoice].id);
-                  nextSession.productPage = 0;
-                  nextSession.screen = 'CHOOSE_PRODUCT';
-              } catch (apiError) {
-                  console.error('[Handler] API Error fetching products:', apiError);
-                  responseMessage = t.errors.generic;
-                  goHome();
-              }
-          } else if (userInput !== '') {
-            console.log('[Handler] Invalid provider choice.');
+          if (session.providers && providerChoice >= 0 && providerChoice < session.providers.length) {
+            nextSession.selectedProviderId = session.providers[providerChoice].id;
+            nextSession.products = await getProducts(session.providers[providerChoice].id);
+            nextSession.productPage = 0;
+            nextSession.screen = 'CHOOSE_PRODUCT';
+          } else if (userInput) {
             responseMessage = t.errors.invalidChoice;
           }
           break;
 
         case 'CHOOSE_PRODUCT':
           const products = session.products || [];
-          if (userInput === '8') { // Next
-              const currentPage = nextSession.productPage || 0;
-              if ((currentPage + 1) * 2 < products.length) {
-                nextSession.productPage = currentPage + 1;
+           if (userInput === '8' && nextSession.productPage !== undefined) { // Next
+              if ((nextSession.productPage + 1) * 2 < products.length) {
+                nextSession.productPage++;
               }
-              break;
-          }
-          if (userInput === '7') { // Previous
-              const currentPage = nextSession.productPage || 0;
-              if (currentPage > 0) {
-                nextSession.productPage = currentPage - 1;
+          } else if (userInput === '7' && nextSession.productPage) { // Prev
+              if (nextSession.productPage > 0) {
+                nextSession.productPage--;
               }
-              break;
-          }
-
-          const productChoice = parseInt(userInput) - 1;
-          const isValidProductChoice = productChoice >= 0 && productChoice < products.length;
-
-          if (isValidProductChoice) {
-            nextSession.screen = 'APPLY_LOAN_AMOUNT';
-            nextSession.selectedProductId = products[productChoice].id;
-            console.log(`[Handler] Product chosen: "${products[productChoice].name}"`);
-          } else if (userInput !== '') {
-            console.log('[Handler] Invalid product choice.');
-            responseMessage = t.errors.invalidChoice;
+          } else {
+            const productChoice = parseInt(userInput) - 1;
+            if (productChoice >= 0 && productChoice < products.length) {
+              nextSession.selectedProductId = products[productChoice].id;
+              nextSession.screen = 'APPLY_LOAN_AMOUNT';
+            } else if (userInput) {
+              responseMessage = t.errors.invalidChoice;
+            }
           }
           break;
 
         case 'APPLY_LOAN_AMOUNT':
-          const currentProduct = session.products?.find(
-              p => p.id === session.selectedProductId
-          );
+          const product = session.products?.find(p => p.id === session.selectedProductId);
           const amount = parseFloat(userInput);
-          if (!currentProduct) {
+          if (!product) {
             responseMessage = t.errors.productNotFound;
             goHome();
-          } else if (
-            !isNaN(amount) &&
-            amount >= currentProduct.minAmount &&
-            amount <= currentProduct.maxAmount
-          ) {
-            nextSession.screen = 'APPLY_LOAN_CONFIRM';
+          } else if (!isNaN(amount) && amount >= product.minAmount && amount <= product.maxAmount) {
             nextSession.loanAmount = amount;
-            console.log(`[Handler] Loan amount entered: ${amount}`);
-          } else if (userInput !== '') {
-            console.log(`[Handler] Invalid loan amount: ${userInput}`);
-            responseMessage = t.errors.invalidAmount(currentProduct.minAmount, currentProduct.maxAmount);
+            nextSession.screen = 'APPLY_LOAN_CONFIRM';
+          } else if (userInput) {
+            responseMessage = t.errors.invalidAmount(product.minAmount, product.maxAmount);
           }
           break;
 
         case 'APPLY_LOAN_CONFIRM':
-          if (userInput === '1') {
-            console.log('[Handler] User confirmed loan application.');
-            const { selectedProviderId, selectedProductId, loanAmount } = session;
-            const provider = session.providers?.find(p => p.id === selectedProviderId);
-            const product = session.products?.find(p => p.id === selectedProductId);
-            
-            if (provider && product && loanAmount) {
-              console.log('[Handler] Adding loan to database.');
-              MockDatabase.addLoan(
-                normalizedPhone,
-                provider.name,
-                product.name,
-                loanAmount,
-                loanAmount * product.interestRate
-              );
-              responseMessage = t.loanSuccess(loanAmount.toFixed(2), product.name);
-              responsePrefix = 'END';
-              sessionManager.deleteSession(sessionId);
-            } else {
-              console.log('[Handler] Error during loan application (missing data).');
-              responseMessage = t.errors.generic;
-              goHome();
-            }
+          const provider = session.providers?.find(p => p.id === session.selectedProviderId);
+          const confirmProduct = session.products?.find(p => p.id === session.selectedProductId);
+          if (userInput === '1' && provider && confirmProduct && session.loanAmount) {
+            MockDatabase.addLoan(normalizedPhone, provider.name, confirmProduct.name, session.loanAmount, session.loanAmount * confirmProduct.interestRate);
+            responseMessage = t.loanSuccess(session.loanAmount.toFixed(2), confirmProduct.name);
+            responsePrefix = 'END';
           } else if (userInput === '2') {
-            console.log('[Handler] User cancelled loan application.');
             responseMessage = t.loanCancelled;
             goHome();
-          } else if (userInput !== '') {
+          } else if (userInput) {
             responseMessage = t.errors.invalidChoice;
           }
           break;
@@ -328,87 +249,57 @@ async function processIncomingRequest(
         case 'LOAN_STATUS':
           if (userInput === '9') { // More
             const userLoans = MockDatabase.getLoans(normalizedPhone);
-            const pageSize = 2;
-            const currentPage = session.loanStatusPage || 0;
-            if ((currentPage + 1) * pageSize < userLoans.length) {
-              nextSession.loanStatusPage = currentPage + 1;
-              console.log(`[Handler] Paginating loan status to page ${nextSession.loanStatusPage}`);
+            if (((session.loanStatusPage || 0) + 1) * 2 < userLoans.length) {
+              nextSession.loanStatusPage = (session.loanStatusPage || 0) + 1;
             }
           }
           break;
-
+          
         case 'REPAY_SELECT_LOAN':
-          const repayChoice = parseInt(userInput) - 1;
-          if (
-            session.repayLoans &&
-            repayChoice >= 0 &&
-            repayChoice < session.repayLoans.length
-          ) {
-            nextSession.screen = 'REPAY_ENTER_AMOUNT';
-            nextSession.selectedRepayLoanId = session.repayLoans[repayChoice].id;
-            console.log(`[Handler] Selected loan to repay: ID ${nextSession.selectedRepayLoanId}`);
-          } else if (userInput !== '') {
-            console.log('[Handler] Invalid loan selection for repayment.');
-            responseMessage = t.errors.invalidChoice;
-          }
+           const repayChoice = parseInt(userInput) - 1;
+           if (session.repayLoans && repayChoice >= 0 && repayChoice < session.repayLoans.length) {
+             nextSession.selectedRepayLoanId = session.repayLoans[repayChoice].id;
+             nextSession.screen = 'REPAY_ENTER_AMOUNT';
+           } else if (userInput) {
+             responseMessage = t.errors.invalidChoice;
+           }
           break;
 
         case 'REPAY_ENTER_AMOUNT':
-          const repayLoan = session.repayLoans?.find(
-            (l) => l.id === session.selectedRepayLoanId
-          );
+          const loanToRepay = session.repayLoans?.find(l => l.id === session.selectedRepayLoanId);
           const repayAmount = parseFloat(userInput);
-          if (!repayLoan) {
+          if (!loanToRepay) {
             responseMessage = t.errors.loanNotFound;
             goHome();
           } else {
-            const outstanding =
-              repayLoan.amount + repayLoan.interest - repayLoan.repaid;
-            if (
-              !isNaN(repayAmount) &&
-              repayAmount > 0 &&
-              repayAmount <= outstanding
-            ) {
-              console.log(`[Handler] Repaying loan with ${repayAmount}`);
-              MockDatabase.repayLoan(normalizedPhone, repayLoan.id, repayAmount);
+            const outstanding = loanToRepay.amount + loanToRepay.interest - loanToRepay.repaid;
+            if (!isNaN(repayAmount) && repayAmount > 0 && repayAmount <= outstanding) {
+              MockDatabase.repayLoan(normalizedPhone, loanToRepay.id, repayAmount);
               responseMessage = t.repaymentSuccess(repayAmount.toFixed(2));
               responsePrefix = 'END';
-              sessionManager.deleteSession(sessionId);
-            } else if (userInput !== '') {
-              console.log(`[Handler] Invalid repayment amount: ${repayAmount}`);
+            } else if (userInput) {
               responseMessage = t.errors.invalidRepayment(outstanding.toFixed(2));
             }
           }
           break;
-
-        case 'LOAN_HISTORY':
-          // No user input is handled here, it just displays information.
-          // Navigation to home (0) is handled globally.
-          break;
       }
     } catch (error) {
-          console.error('[Handler] An unexpected error occurred:', error);
-          responseMessage = t.errors.generic;
-          goHome();
+      console.error('[Handler] API or Logic Error:', error);
+      responseMessage = t.errors.generic;
+      goHome();
     }
   }
-  
-  if (responsePrefix !== 'END') {
-    console.log('[Handler] Updating session state.');
-    sessionManager.updateSession(sessionId, nextSession);
-  } else {
-    console.log('[Handler] Session ended.');
-  }
-  
-  if (responsePrefix === 'END') {
-    return `${responsePrefix} ${responseMessage}`;
-  }
 
-  const menuText = getMenuText(nextSession);
-  const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
+  if (responsePrefix === 'END') {
+    sessionManager.deleteSession(sessionId);
+    return `END ${responseMessage}`;
+  }
   
-  return `${responsePrefix} ${finalMessage}`;
+  sessionManager.updateSession(sessionId, nextSession);
+  const menuText = getMenuText(nextSession);
+  return `CON ${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
 }
+
 
 export async function processUssdRequest(
   sessionId: string,
@@ -417,7 +308,6 @@ export async function processUssdRequest(
   forwardedPin: string | null,
   forwardedLanguage: 'en' | 'am' | null
 ): Promise<string> {
-  // This is a standalone app, so we can ignore the forwarded parameters for now.
-  // The logic for handling them can be re-added if direct integration is needed again.
-  return await processIncomingRequest(sessionId, phoneNumber, text);
+  // This function now orchestrates the handoff and subsequent processing.
+  return await processProxiedRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage);
 }
