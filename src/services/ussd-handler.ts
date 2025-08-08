@@ -10,138 +10,100 @@ import { getProviders, getProducts } from './api';
 async function processIncomingRequest(
   sessionId: string,
   phoneNumber: string,
-  text: string,
-  forwardedPin?: string | null,
-  forwardedLanguage?: string | null
+  text: string
 ): Promise<string> {
-  console.log('[Handler] Processing request:', { sessionId, phoneNumber, text, forwardedPin, forwardedLanguage });
+  console.log('[Handler] Processing request:', { sessionId, phoneNumber, text });
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
   const userInput = text.split('*').pop()?.trim() || '';
 
   let session = sessionManager.getSession(sessionId);
   let responsePrefix = 'CON';
   let responseMessage = '';
-  
-  const isProxiedRequest = !!forwardedPin;
 
   if (!session) {
     console.log('[Handler] No session found, creating a new one.');
     session = sessionManager.createSession(sessionId, normalizedPhone);
-    if (forwardedLanguage) {
-      session.language = forwardedLanguage === 'am' ? 'am' : 'en';
-      console.log(`[Handler] Setting language from proxy: ${session.language}`);
-    }
   }
 
-  // If it's a proxied request with a PIN and user is not authenticated yet, try to authenticate.
-  if (isProxiedRequest && !session.authenticated) {
-    const correctPin = MockDatabase.getPin(normalizedPhone);
-    const t = translations[session.language];
-    if (correctPin && forwardedPin === correctPin) {
-      console.log('[Handler] Authenticated via forwarded PIN from parent.');
-      session.authenticated = true;
-      session.screen = 'HOME'; // Go directly to home menu
-      session.pinAttempts = 0;
-      
-      responseMessage = `${t.loginSuccess}\n`;
-      // Stop processing here and show the home menu directly.
-      sessionManager.updateSession(sessionId, session);
-      const menuText = getMenuText(session);
-      return `${responsePrefix} ${responseMessage}${menuText}`;
-    } else {
-      // If forwarded PIN is wrong, end the session.
-      console.log('[Handler] Invalid forwarded PIN. Ending session.');
-      responsePrefix = 'END';
-      responseMessage = t.errors.incorrectPin(1); // Show a generic pin error
-      sessionManager.deleteSession(sessionId);
-      return `${responsePrefix} ${responseMessage}`;
+  // Handle language selection as the very first step
+  if (session.screen === 'LANGUAGE_SELECT') {
+    if (userInput === '1') {
+      session.language = 'en';
+      session.screen = 'PIN';
+    } else if (userInput === '2') {
+      session.language = 'am';
+      session.screen = 'PIN';
+    } else if (userInput !== '') {
+      // If the input is invalid and not the initial empty request
+      responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
     }
+    
+    sessionManager.updateSession(sessionId, session);
+    const menuText = getMenuText(session);
+    const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
+    return `${responsePrefix} ${finalMessage}`;
+  }
+
+  const t = translations[session.language];
+
+  const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
+  if (!user) {
+    console.log(`[Handler] User not found for phone: ${normalizedPhone}. Ending session.`);
+    responsePrefix = 'END';
+    responseMessage = t.errors.notRegistered;
+    sessionManager.deleteSession(sessionId);
+    return `${responsePrefix} ${responseMessage}`;
+  }
+  console.log('[Handler] User found:', { phoneNumber: user.phoneNumber, isVerified: user.isVerified });
+
+  if (!user.isVerified) {
+    console.log('[Handler] User is not verified. Ending session.');
+    responsePrefix = 'END';
+    responseMessage = t.errors.notVerified;
+    sessionManager.deleteSession(sessionId);
+    return `${responsePrefix} ${responseMessage}`;
   }
   
-  // The logic inside this block should only run if the session is *not* a proxied one
-  if (!isProxiedRequest) {
-      // Handle language selection as the very first step IF NOT a proxied request
-      if (session.screen === 'LANGUAGE_SELECT' && !forwardedLanguage) {
-        if (userInput === '1') {
-          session.language = 'en';
-          session.screen = 'PIN';
-        } else if (userInput === '2') {
-          session.language = 'am';
-          session.screen = 'PIN';
-        } else if (userInput !== '') {
-          // If the input is invalid and not the initial empty request
-          responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
-        }
-        
-        sessionManager.updateSession(sessionId, session);
-        const menuText = getMenuText(session);
-        const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
-        return `${responsePrefix} ${finalMessage}`;
-      }
-
-      const t = translations[session.language];
-
-      const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
-      if (!user) {
-        console.log(`[Handler] User not found for phone: ${normalizedPhone}. Ending session.`);
-        responsePrefix = 'END';
-        responseMessage = t.errors.notRegistered;
-        sessionManager.deleteSession(sessionId);
-        return `${responsePrefix} ${responseMessage}`;
-      }
-      console.log('[Handler] User found:', { phoneNumber: user.phoneNumber, isVerified: user.isVerified });
-
-      if (!user.isVerified) {
-        console.log('[Handler] User is not verified. Ending session.');
-        responsePrefix = 'END';
-        responseMessage = t.errors.notVerified;
-        sessionManager.deleteSession(sessionId);
-        return `${responsePrefix} ${responseMessage}`;
-      }
-      
-      // If not authenticated (and not a proxied request that just got authenticated)
-      if (!session.authenticated) {
-        console.log('[Handler] User not authenticated. Checking PIN.');
-        if (userInput === '') {
-          console.log('[Handler] Waiting for PIN input.');
+  if (!session.authenticated) {
+    console.log('[Handler] User not authenticated. Checking PIN.');
+    if (userInput === '') {
+      console.log('[Handler] Waiting for PIN input.');
+    } else {
+      const isPinFormatValid = /^\d{4}$/.test(userInput);
+      if (!isPinFormatValid) {
+        responseMessage = t.errors.invalidPinFormat;
+      } else {
+        const correctPin = MockDatabase.getPin(normalizedPhone);
+        if (correctPin && userInput === correctPin) {
+          console.log('[Handler] PIN correct. Authenticating session.');
+          session.authenticated = true;
+          session.screen = 'HOME';
+          session.pinAttempts = 0;
+          responseMessage = `${t.loginSuccess}\n`;
         } else {
-          const isPinFormatValid = /^\d{4}$/.test(userInput);
-          if (!isPinFormatValid) {
-            responseMessage = t.errors.invalidPinFormat;
+          session.pinAttempts++;
+          console.log(`[Handler] Incorrect PIN. Attempt ${session.pinAttempts}.`);
+          if (session.pinAttempts >= 3) {
+            console.log('[Handler] Too many PIN attempts. Ending session.');
+            responseMessage = t.errors.tooManyPinAttempts;
+            responsePrefix = 'END';
+            sessionManager.deleteSession(sessionId);
           } else {
-            const correctPin = MockDatabase.getPin(normalizedPhone);
-            if (correctPin && userInput === correctPin) {
-              console.log('[Handler] PIN correct. Authenticating session.');
-              session.authenticated = true;
-              session.screen = 'HOME';
-              session.pinAttempts = 0;
-              responseMessage = `${t.loginSuccess}\n`;
-            } else {
-              session.pinAttempts++;
-              console.log(`[Handler] Incorrect PIN. Attempt ${session.pinAttempts}.`);
-              if (session.pinAttempts >= 3) {
-                console.log('[Handler] Too many PIN attempts. Ending session.');
-                responseMessage = t.errors.tooManyPinAttempts;
-                responsePrefix = 'END';
-                sessionManager.deleteSession(sessionId);
-              } else {
-                responseMessage = t.errors.incorrectPin(session.pinAttempts);
-              }
-            }
+            responseMessage = t.errors.incorrectPin(session.pinAttempts);
           }
         }
-        if (!session.authenticated && responsePrefix !== 'END') {
-          console.log('[Handler] Staying on PIN screen.');
-          sessionManager.updateSession(sessionId, session);
-          const menuText = getMenuText(session);
-          return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
-        }
       }
+    }
+    if (!session.authenticated && responsePrefix !== 'END') {
+      console.log('[Handler] Staying on PIN screen.');
+      sessionManager.updateSession(sessionId, session);
+      const menuText = getMenuText(session);
+      return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
+    }
   }
 
 
   let nextSession: SessionData = { ...session };
-  const t = translations[session.language];
   console.log(`[Handler] Processing screen: "${session.screen}" with input: "${userInput}"`);
 
 
@@ -188,7 +150,7 @@ async function processIncomingRequest(
     switch (session.screen) {
       case 'LANGUAGE_SELECT':
       case 'PIN':
-        // This case will now only be hit for non-proxied requests that have just authenticated.
+        // This case will now only be hit after successful auth.
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
           nextSession.screen = 'HOME';
@@ -232,8 +194,6 @@ async function processIncomingRequest(
             sessionManager.deleteSession(sessionId);
             break;
           default:
-            // For proxied requests, the initial userInput is from the parent and can be ignored here.
-            // For direct requests, if the input is not empty and not a valid choice, show an error.
             if (userInput !== '') {
                responseMessage = t.errors.invalidChoice;
             }
@@ -440,9 +400,7 @@ async function processIncomingRequest(
 export async function processUssdRequest(
   sessionId: string,
   phoneNumber: string,
-  text: string,
-  forwardedPin: string | null = null,
-  forwardedLanguage: string | null = null,
+  text: string
 ): Promise<string> {
-    return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
+    return await processIncomingRequest(sessionId, phoneNumber, text)
 }
