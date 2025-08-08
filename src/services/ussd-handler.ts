@@ -66,9 +66,8 @@ async function processIncomingRequest(
   
   if (!session.authenticated) {
     console.log('[Handler] User not authenticated. Checking PIN.');
-    if (userInput === '') {
-      console.log('[Handler] Waiting for PIN input.');
-    } else {
+    // Do not process empty input on the PIN screen after a failed attempt
+    if (userInput !== '') {
       const isPinFormatValid = /^\d{4}$/.test(userInput);
       if (!isPinFormatValid) {
         responseMessage = t.errors.invalidPinFormat;
@@ -94,6 +93,7 @@ async function processIncomingRequest(
         }
       }
     }
+    
     if (!session.authenticated && responsePrefix !== 'END') {
       console.log('[Handler] Staying on PIN screen.');
       sessionManager.updateSession(sessionId, session);
@@ -117,6 +117,7 @@ async function processIncomingRequest(
     delete nextSession.loanAmount;
   };
   
+  // Back and Home navigation should be handled before processing the screen-specific logic
   if (session.screen !== 'HOME' && session.screen !== 'PIN' && session.screen !== 'LANGUAGE_SELECT') {
     if (userInput === '0') {
       goHome();
@@ -135,7 +136,7 @@ async function processIncomingRequest(
         case 'REPAY_ENTER_AMOUNT':
           nextSession.screen = 'REPAY_SELECT_LOAN';
           break;
-        case 'CHOOSE_PROVIDER':
+        case 'CHOOSE_PROVIDER': // From provider list, back goes to home
         case 'LOAN_STATUS':
         case 'REPAY_SELECT_LOAN':
         case 'LOAN_HISTORY':
@@ -145,6 +146,7 @@ async function processIncomingRequest(
     }
   }
 
+  // Only process screen logic if the screen hasn't changed due to navigation
   if (nextSession.screen === session.screen) {
     try {
     switch (session.screen) {
@@ -162,10 +164,25 @@ async function processIncomingRequest(
 
         switch (userInput) {
           case '1':
-            console.log('[Handler] Starting loan application flow.');
-            nextSession.screen = 'CHOOSE_PROVIDER';
-            nextSession.providers = await getProviders();
-            console.log('[Handler] Fetched providers:', nextSession.providers);
+            const existingLoans = MockDatabase.getLoans(normalizedPhone);
+            const hasActiveLoan = existingLoans.some(loan => loan.status === 'Active');
+            if (hasActiveLoan) {
+                console.log('[Handler] User has an active loan.');
+                responseMessage = t.errors.hasActiveLoan;
+                responsePrefix = 'END';
+                sessionManager.deleteSession(sessionId);
+            } else {
+                console.log('[Handler] Starting loan application flow.');
+                nextSession.screen = 'CHOOSE_PROVIDER';
+                try {
+                    nextSession.providers = await getProviders();
+                    console.log('[Handler] Fetched providers:', nextSession.providers);
+                } catch (apiError) {
+                    console.error('[Handler] API Error fetching providers:', apiError);
+                    responseMessage = t.errors.generic;
+                    goHome();
+                }
+            }
             break;
           case '2':
             nextSession.screen = 'LOAN_STATUS';
@@ -208,9 +225,15 @@ async function processIncomingRequest(
         if (providerChoice >= 0 && providerChoice < providers.length) {
             nextSession.screen = 'CHOOSE_PRODUCT';
             nextSession.selectedProviderId = providers[providerChoice].id;
-            nextSession.products = await getProducts(providers[providerChoice].id);
-            nextSession.productPage = 0;
-            console.log(`[Handler] Provider chosen: "${providers[providerChoice].name}"`);
+            try {
+                nextSession.products = await getProducts(providers[providerChoice].id);
+                nextSession.productPage = 0;
+                console.log(`[Handler] Provider chosen: "${providers[providerChoice].name}"`);
+            } catch (apiError) {
+                console.error('[Handler] API Error fetching products:', apiError);
+                responseMessage = t.errors.generic;
+                goHome();
+            }
         } else {
           console.log('[Handler] Invalid provider choice.');
           responseMessage = t.errors.invalidChoice;
@@ -238,19 +261,9 @@ async function processIncomingRequest(
         const isValidProductChoice = productChoice >= 0 && productChoice < products.length;
 
         if (isValidProductChoice) {
-          const existingLoans = MockDatabase.getLoans(normalizedPhone);
-          const hasActiveLoan = existingLoans.some(loan => loan.status === 'Active');
-
-          if (hasActiveLoan) {
-            console.log('[Handler] User has an active loan and is trying to apply for a new one.');
-            responseMessage = t.errors.hasActiveLoan;
-            responsePrefix = 'END';
-            sessionManager.deleteSession(sessionId);
-          } else {
-            nextSession.screen = 'APPLY_LOAN_AMOUNT';
-            nextSession.selectedProductId = products[productChoice].id;
-            console.log(`[Handler] Product chosen: "${products[productChoice].name}"`);
-          }
+          nextSession.screen = 'APPLY_LOAN_AMOUNT';
+          nextSession.selectedProductId = products[productChoice].id;
+          console.log(`[Handler] Product chosen: "${products[productChoice].name}"`);
         } else {
           console.log('[Handler] Invalid product choice.');
           responseMessage = t.errors.invalidChoice;
