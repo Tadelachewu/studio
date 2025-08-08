@@ -206,11 +206,14 @@ async function processIncomingRequest(
 
         // Map parent's choice "3" (Microloan) to child's choice "1" (Apply for Loan)
         const effectiveInput = (forwardedPin && homeInput === '3') ? '1' : homeInput;
+        console.log(`[Handler] HOME selection: "${homeInput}", effective selection: "${effectiveInput}"`);
 
         switch (effectiveInput) {
           case '1':
+            console.log('[Handler] Starting loan application flow.');
             nextSession.screen = 'CHOOSE_PROVIDER';
             nextSession.providers = await getProviders();
+            console.log('[Handler] Fetched providers:', nextSession.providers);
             break;
           case '2':
             nextSession.screen = 'LOAN_STATUS';
@@ -246,7 +249,7 @@ async function processIncomingRequest(
             responseMessage = t.errors.invalidChoice;
             break;
         }
-        console.log(`[Handler] HOME selection: "${homeInput}", effective selection: "${effectiveInput}", next screen: "${nextSession.screen}"`);
+        console.log(`[Handler] Next screen after HOME: "${nextSession.screen}"`);
         break;
 
       case 'CHOOSE_PROVIDER':
