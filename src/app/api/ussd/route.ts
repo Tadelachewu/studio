@@ -9,10 +9,16 @@ export async function POST(req: Request) {
   const phoneNumber = body.get('phoneNumber') as string;
   const text = body.get('text') as string;
 
+  // Added to handle forwarded requests from the parent USSD app
+  const forwardedPin = body.get('pin') as string | null;
+  const forwardedLanguage = body.get('language') as 'en' | 'am' | null;
+
   const responseBody = await processUssdRequest(
     sessionId,
     phoneNumber,
     text,
+    forwardedPin,
+    forwardedLanguage
   );
 
   console.log(`Sending Response: "${responseBody}"`);
