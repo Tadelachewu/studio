@@ -1,3 +1,4 @@
+
 import { getMenuText } from '@/lib/menu';
 import { MockDatabase } from '@/lib/mock-data';
 import { sessionManager } from '@/lib/session';
@@ -39,7 +40,7 @@ async function processIncomingRequest(
       const t = translations[session.language];
       responseMessage = `${t.loginSuccess}\n`;
       sessionManager.updateSession(sessionId, session);
-      // Immediately return the home menu for the user to make a new choice
+      // Immediately return the home menu, ignoring the user's last input ('3') from the parent menu
       const menuText = getMenuText(session);
       return `${responsePrefix} ${responseMessage}${menuText}`;
     }
@@ -437,3 +438,5 @@ export async function processUssdRequest(
 ): Promise<string> {
     return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
 }
+
+    
