@@ -128,9 +128,10 @@ async function processProxiedRequest(
   const goHome = () => { nextSession.screen = 'HOME'; };
 
   // Global navigation (0 for Home, 99 for Back)
-  if (session.screen !== 'HOME' && userInput === '0') {
+  // Use 'userInput' for navigation to ensure it's always the latest choice.
+  if (userInput === '0') {
     goHome();
-  } else if (session.screen !== 'HOME' && userInput === '99') {
+  } else if (userInput === '99') {
     switch (session.screen) {
       case 'CHOOSE_PRODUCT': nextSession.screen = 'CHOOSE_PROVIDER'; break;
       case 'APPLY_LOAN_AMOUNT': nextSession.screen = 'CHOOSE_PRODUCT'; break;
@@ -143,10 +144,11 @@ async function processProxiedRequest(
     try {
       switch (session.screen) {
         case 'HOME':
-          // Ignore the initial input from the parent menu if this is the first time we're seeing the HOME screen.
+          // The `userInput` is the most recent selection from the user.
+          // In the case of a handoff, the first time this screen is shown, there is no real input yet.
           const effectiveUserInput = (forwardedPin && session.screen === 'HOME') ? '' : userInput;
           switch (effectiveUserInput) {
-            case '1':
+            case '1': // Apply for Loan
               const existingLoans = MockDatabase.getLoans(normalizedPhone);
               if (existingLoans.some(loan => loan.status === 'Active')) {
                 responseMessage = t.errors.hasActiveLoan;
@@ -157,31 +159,32 @@ async function processProxiedRequest(
                     nextSession.screen = 'CHOOSE_PROVIDER';
                   } catch (e) {
                      responseMessage = t.errors.generic;
-                     goHome();
+                     responsePrefix = 'END'; // End on API error for clarity
                   }
               }
               break;
-            case '2':
+            case '2': // Check Loan Status
               nextSession.screen = 'LOAN_STATUS';
               nextSession.loanStatusPage = 0;
               break;
-            case '3':
+            case '3': // Repay Loan
               nextSession.screen = 'REPAY_SELECT_LOAN';
               nextSession.repayLoans = MockDatabase.getLoans(normalizedPhone).filter(l => l.status === 'Active');
               break;
-            case '4':
+            case '4': // Check Balance
               const balance = MockDatabase.getBalance(normalizedPhone);
               responseMessage = t.balance(balance.toFixed(2));
               responsePrefix = 'END';
               break;
-            case '5':
+            case '5': // Loan History
               nextSession.screen = 'LOAN_HISTORY';
               break;
-            case '0':
+            case '0': // Exit from Home
               responseMessage = t.exitMessage;
               responsePrefix = 'END';
               break;
             default:
+              // Only show invalid choice if there was an actual input
               if (effectiveUserInput) {
                 responseMessage = t.errors.invalidChoice;
               }
@@ -291,6 +294,9 @@ async function processProxiedRequest(
             }
           }
           break;
+        case 'LOAN_HISTORY':
+            // No user input expected on this screen other than global nav
+            break;
       }
     } catch (error) {
       console.error('[Handler] API or Logic Error:', error);
