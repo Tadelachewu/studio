@@ -1,5 +1,6 @@
 import { type SessionData } from '@/lib/types';
 import { translations } from '@/lib/translations';
+import { MockDatabase } from './mock-data';
 
 export function getMenuText(currentSession: SessionData): string {
   const t = translations[currentSession.language];
@@ -61,7 +62,7 @@ export function getMenuText(currentSession: SessionData): string {
       const userLoans = MockDatabase.getLoans(currentSession.phoneNumber);
       if (userLoans.length === 0) return `${t.loanStatus.noLoans}\n0. ${t.navigation.home}`;
       const pageSize = 2;
-      const page = currentSession.loanStatusPage;
+      const page = currentSession.loanStatusPage || 0; // Safely default to 0
       const loansToShow = userLoans.slice(
         page * pageSize,
         (page + 1) * pageSize
