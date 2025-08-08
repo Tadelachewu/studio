@@ -143,15 +143,22 @@ async function processProxiedRequest(
     try {
       switch (session.screen) {
         case 'HOME':
-          switch (userInput) {
+          // Ignore the initial input from the parent menu if this is the first time we're seeing the HOME screen.
+          const effectiveUserInput = (forwardedPin && session.screen === 'HOME') ? '' : userInput;
+          switch (effectiveUserInput) {
             case '1':
               const existingLoans = MockDatabase.getLoans(normalizedPhone);
               if (existingLoans.some(loan => loan.status === 'Active')) {
                 responseMessage = t.errors.hasActiveLoan;
                 responsePrefix = 'END';
               } else {
-                  nextSession.providers = await getProviders();
-                  nextSession.screen = 'CHOOSE_PROVIDER';
+                  try {
+                    nextSession.providers = await getProviders();
+                    nextSession.screen = 'CHOOSE_PROVIDER';
+                  } catch (e) {
+                     responseMessage = t.errors.generic;
+                     goHome();
+                  }
               }
               break;
             case '2':
@@ -175,9 +182,7 @@ async function processProxiedRequest(
               responsePrefix = 'END';
               break;
             default:
-              // For forwarded sessions, the initial userInput might be from the parent menu
-              // We want to ignore it and just show the home menu.
-              if (userInput && !(forwardedPin && session.screen === 'HOME')) {
+              if (effectiveUserInput) {
                 responseMessage = t.errors.invalidChoice;
               }
               break;
@@ -188,9 +193,14 @@ async function processProxiedRequest(
           const providerChoice = parseInt(userInput) - 1;
           if (session.providers && providerChoice >= 0 && providerChoice < session.providers.length) {
             nextSession.selectedProviderId = session.providers[providerChoice].id;
-            nextSession.products = await getProducts(session.providers[providerChoice].id);
-            nextSession.productPage = 0;
-            nextSession.screen = 'CHOOSE_PRODUCT';
+             try {
+                nextSession.products = await getProducts(session.providers[providerChoice].id);
+                nextSession.productPage = 0;
+                nextSession.screen = 'CHOOSE_PRODUCT';
+             } catch (e) {
+                responseMessage = t.errors.generic;
+                goHome();
+             }
           } else if (userInput) {
             responseMessage = t.errors.invalidChoice;
           }
@@ -202,10 +212,8 @@ async function processProxiedRequest(
               if ((nextSession.productPage + 1) * 2 < products.length) {
                 nextSession.productPage++;
               }
-          } else if (userInput === '7' && nextSession.productPage) { // Prev
-              if (nextSession.productPage > 0) {
-                nextSession.productPage--;
-              }
+          } else if (userInput === '7' && nextSession.productPage !== undefined && nextSession.productPage > 0) { // Prev
+              nextSession.productPage--;
           } else {
             const productChoice = parseInt(userInput) - 1;
             if (productChoice >= 0 && productChoice < products.length) {
@@ -223,7 +231,7 @@ async function processProxiedRequest(
           if (!product) {
             responseMessage = t.errors.productNotFound;
             goHome();
-          } else if (!isNaN(amount) && amount >= product.minAmount && amount <= product.maxAmount) {
+          } else if (userInput && !isNaN(amount) && amount >= product.minAmount && amount <= product.maxAmount) {
             nextSession.loanAmount = amount;
             nextSession.screen = 'APPLY_LOAN_CONFIRM';
           } else if (userInput) {
@@ -249,8 +257,9 @@ async function processProxiedRequest(
         case 'LOAN_STATUS':
           if (userInput === '9') { // More
             const userLoans = MockDatabase.getLoans(normalizedPhone);
-            if (((session.loanStatusPage || 0) + 1) * 2 < userLoans.length) {
-              nextSession.loanStatusPage = (session.loanStatusPage || 0) + 1;
+            const currentPage = session.loanStatusPage || 0;
+            if ((currentPage + 1) * 2 < userLoans.length) {
+              nextSession.loanStatusPage = currentPage + 1;
             }
           }
           break;
@@ -273,7 +282,7 @@ async function processProxiedRequest(
             goHome();
           } else {
             const outstanding = loanToRepay.amount + loanToRepay.interest - loanToRepay.repaid;
-            if (!isNaN(repayAmount) && repayAmount > 0 && repayAmount <= outstanding) {
+            if (userInput && !isNaN(repayAmount) && repayAmount > 0 && repayAmount <= outstanding) {
               MockDatabase.repayLoan(normalizedPhone, loanToRepay.id, repayAmount);
               responseMessage = t.repaymentSuccess(repayAmount.toFixed(2));
               responsePrefix = 'END';
