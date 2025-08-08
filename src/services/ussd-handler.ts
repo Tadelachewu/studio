@@ -6,14 +6,16 @@ import { SessionData } from '@/lib/types';
 import { translations } from '@/lib/translations';
 import { getProviders, getProducts } from './api';
 
-export async function processUssdRequest(
+async function processIncomingRequest(
   sessionId: string,
   phoneNumber: string,
-  userInput: string
+  text: string,
+  forwardedPin?: string | null,
+  forwardedLanguage?: string | null
 ): Promise<string> {
-  console.log('[Handler] Processing request:', { sessionId, phoneNumber, userInput });
+  console.log('[Handler] Processing request:', { sessionId, phoneNumber, text, forwardedPin, forwardedLanguage });
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
-  userInput = userInput.trim();
+  const userInput = text.split('*').pop()?.trim() || '';
 
   let session = sessionManager.getSession(sessionId);
   let responsePrefix = 'CON';
@@ -22,10 +24,36 @@ export async function processUssdRequest(
   if (!session) {
     console.log('[Handler] No session found, creating a new one.');
     session = sessionManager.createSession(sessionId, normalizedPhone);
+    // If this is a proxied request, immediately set language and auth status
+    if (forwardedLanguage) {
+      session.language = forwardedLanguage === 'am' ? 'am' : 'en';
+      console.log(`[Handler] Setting language from proxy: ${session.language}`);
+    }
   }
 
-  // Handle language selection as the very first step.
-  if (session.screen === 'LANGUAGE_SELECT') {
+  // If it's a proxied request with a PIN, try to authenticate immediately
+  if (forwardedPin && !session.authenticated) {
+    const correctPin = MockDatabase.getPin(normalizedPhone);
+    if (correctPin && forwardedPin === correctPin) {
+      console.log('[Handler] Authenticated via forwarded PIN from parent.');
+      session.authenticated = true;
+      session.screen = 'HOME'; // Go directly to home menu
+      session.pinAttempts = 0;
+      const t = translations[session.language];
+      responseMessage = `${t.loginSuccess}\n`;
+    } else {
+      // If forwarded PIN is wrong, end the session.
+      const t = translations[session.language];
+      console.log('[Handler] Invalid forwarded PIN. Ending session.');
+      responsePrefix = 'END';
+      responseMessage = t.errors.incorrectPin(1); // Show a generic pin error
+      sessionManager.deleteSession(sessionId);
+      return `${responsePrefix} ${responseMessage}`;
+    }
+  }
+
+  // Handle language selection as the very first step IF NOT a proxied request
+  if (session.screen === 'LANGUAGE_SELECT' && !forwardedLanguage) {
     if (userInput === '1') {
       session.language = 'en';
       session.screen = 'PIN';
@@ -67,11 +95,9 @@ export async function processUssdRequest(
 
   if (!session.authenticated) {
     console.log('[Handler] User not authenticated. Checking PIN.');
-    // The user must provide a PIN input to proceed. An empty input means they just saw the prompt.
     if (userInput === '') {
        console.log('[Handler] Waiting for PIN input.');
     } else {
-       // Validate PIN format first
       const isPinFormatValid = /^\d{4}$/.test(userInput);
       if (!isPinFormatValid) {
         responseMessage = t.errors.invalidPinFormat;
@@ -97,7 +123,6 @@ export async function processUssdRequest(
         }
       }
     }
-    // If not authenticated and session is not ending, show the PIN prompt again.
     if (!session.authenticated && responsePrefix !== 'END') {
        console.log('[Handler] Staying on PIN screen.');
        sessionManager.updateSession(sessionId, session);
@@ -113,7 +138,6 @@ export async function processUssdRequest(
   const goHome = () => {
     console.log('[Handler] Navigating to HOME screen.');
     nextSession.screen = 'HOME';
-    // Clear transient data
     delete nextSession.providers;
     delete nextSession.products;
     delete nextSession.selectedProviderId;
@@ -121,7 +145,6 @@ export async function processUssdRequest(
     delete nextSession.loanAmount;
   };
   
-  // This check MUST come before the screen-specific logic
   if (session.screen !== 'HOME' && session.screen !== 'PIN' && session.screen !== 'LANGUAGE_SELECT') {
     if (userInput === '0') {
       goHome();
@@ -150,15 +173,12 @@ export async function processUssdRequest(
     }
   }
 
-  // Only process screen-specific logic if we haven't already decided to navigate back/home
   if (nextSession.screen === session.screen) {
     try {
     switch (session.screen) {
       case 'LANGUAGE_SELECT':
-        // This case is now handled at the top, but we keep it to avoid falling through.
         break;
       case 'PIN':
-        // This case is only reached after successful authentication in this same request.
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
           nextSession.screen = 'HOME';
@@ -166,8 +186,10 @@ export async function processUssdRequest(
         break;
 
       case 'HOME':
-        switch (userInput) {
+        const homeInput = forwardedPin ? text.split('*').pop() : userInput;
+        switch (homeInput) {
           case '1':
+          case '3': // Assuming '3' from parent maps to '1' here
             nextSession.screen = 'CHOOSE_PROVIDER';
             nextSession.providers = await getProviders();
             break;
@@ -198,15 +220,13 @@ export async function processUssdRequest(
             sessionManager.deleteSession(sessionId);
             break;
           default:
-            // This case handles the lingering userInput from the PIN screen after a successful login.
-            // We want to show the success message and the menu, but not an "invalid choice" error.
             if (responseMessage.includes(t.loginSuccess)) {
                break;
             }
             responseMessage = t.errors.invalidChoice;
             break;
         }
-        console.log(`[Handler] HOME selection: "${userInput}", next screen: "${nextSession.screen}"`);
+        console.log(`[Handler] HOME selection: "${homeInput}", next screen: "${nextSession.screen}"`);
         break;
 
       case 'CHOOSE_PROVIDER':
@@ -394,4 +414,14 @@ export async function processUssdRequest(
   const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
   
   return `${responsePrefix} ${finalMessage}`;
+}
+
+export async function processUssdRequest(
+  sessionId: string,
+  phoneNumber: string,
+  text: string,
+  forwardedPin?: string | null,
+  forwardedLanguage?: string | null
+): Promise<string> {
+    return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
 }

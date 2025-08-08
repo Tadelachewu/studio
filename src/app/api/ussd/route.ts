@@ -9,15 +9,20 @@ export async function POST(req: Request) {
   const phoneNumber = body.get('phoneNumber') as string;
   const text = body.get('text') as string;
 
-  // From Africa's Talking, the text is a string of inputs separated by *.
-  // We need the last input in the sequence.
-  const userInput = text.split('*').pop()?.trim() || '';
-  console.log(`Extracted User Input: "${userInput}"`);
+  // Check for data forwarded from a parent USSD app
+  const forwardedPin = body.get('pin');
+  const forwardedLanguage = body.get('language');
 
-  const responseBody = await processUssdRequest(sessionId, phoneNumber, userInput);
+  const responseBody = await processUssdRequest(
+    sessionId,
+    phoneNumber,
+    text,
+    forwardedPin as string | null,
+    forwardedLanguage as string | null
+  );
+
   console.log(`Sending Response: "${responseBody}"`);
   console.log('------------------------------------');
-
 
   return new Response(responseBody, {
     headers: { 'Content-Type': 'text/plain' },

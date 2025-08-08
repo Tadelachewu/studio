@@ -1,3 +1,4 @@
+
 # NIB Loan USSD Application
 
 This is a USSD-based loan application system built with Next.js. It provides a menu-driven interface for users to apply for loans, check their loan status, manage repayments, and more, all via USSD.
@@ -46,7 +47,14 @@ Create a new file named `.env` in the root of your project and add the following
 ```env
 # URL for the external loan service backend
 API_BASE_URL=https://wise-spoons-grow.loca.lt
-```
+```-npm run tunnel run this to get this url and run lender app like this also
+-studio-4102235081:~/studio{main}$ npm run tunnel
+
+> nextn@0.1.0 tunnel
+> lt --port 9006
+
+your url is: https://silver-tables-fall.loca.lt
+npm run tunnel
 
 Replace the URL with your actual backend service URL if it's different.
 
