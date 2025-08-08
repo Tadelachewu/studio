@@ -27,6 +27,12 @@ export const mockUsers: MockUser[] = [
     fayidaId: '11223344',
     isVerified: true,
   },
+  {
+    phoneNumber: '+251900000020',
+    pin: '5678',
+    fayidaId: '87654321',
+    isVerified: true,
+  },
 ];
 
 const initialUserLoans: Record<string, MockLoan[]> = {};

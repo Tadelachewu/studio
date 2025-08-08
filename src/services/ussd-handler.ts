@@ -21,19 +21,20 @@ async function processIncomingRequest(
   let session = sessionManager.getSession(sessionId);
   let responsePrefix = 'CON';
   let responseMessage = '';
+  
+  const isProxiedRequest = !!forwardedPin;
 
   if (!session) {
     console.log('[Handler] No session found, creating a new one.');
     session = sessionManager.createSession(sessionId, normalizedPhone);
-    // If this is a proxied request, immediately set language
     if (forwardedLanguage) {
       session.language = forwardedLanguage === 'am' ? 'am' : 'en';
       console.log(`[Handler] Setting language from proxy: ${session.language}`);
     }
   }
 
-  // If it's a proxied request with a PIN, try to authenticate immediately
-  if (forwardedPin && !session.authenticated) {
+  // If it's a proxied request with a PIN and user is not authenticated yet, try to authenticate.
+  if (isProxiedRequest && !session.authenticated) {
     const correctPin = MockDatabase.getPin(normalizedPhone);
     if (correctPin && forwardedPin === correctPin) {
       console.log('[Handler] Authenticated via forwarded PIN from parent.');
@@ -41,7 +42,10 @@ async function processIncomingRequest(
       session.screen = 'HOME'; // Go directly to home menu
       session.pinAttempts = 0;
       const t = translations[session.language];
-      responseMessage = `${t.loginSuccess}\n`;
+      // Add login success message only if we aren't immediately showing another message.
+      if (userInput !== '3') {
+          responseMessage = `${t.loginSuccess}\n`;
+      }
     } else {
       // If forwarded PIN is wrong, end the session.
       const t = translations[session.language];
@@ -52,91 +56,95 @@ async function processIncomingRequest(
       return `${responsePrefix} ${responseMessage}`;
     }
   }
-
-  // Handle language selection as the very first step IF NOT a proxied request
-  if (session.screen === 'LANGUAGE_SELECT' && !forwardedLanguage) {
-     if (userInput === '1') {
-      session.language = 'en';
-      session.screen = 'PIN';
-    } else if (userInput === '2') {
-      session.language = 'am';
-      session.screen = 'PIN';
-    } else if (userInput === '') {
-      // First time user is seeing the prompt, do nothing and let the menu text show.
-    } else {
-      // If the input is invalid
-      responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
-    }
-    
-    // If the screen is still LANGUAGE_SELECT, it means we need to show the menu again.
-    // If the screen changed to PIN, it means a valid language was selected.
-    // In either case, we update the session and return the correct menu.
-    sessionManager.updateSession(sessionId, session);
-    const menuText = getMenuText(session);
-    const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
-    return `${responsePrefix} ${finalMessage}`;
-  }
-
-
-  const t = translations[session.language];
-
-  const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
-  if (!user) {
-    console.log(`[Handler] User not found for phone: ${normalizedPhone}. Ending session.`);
-    responsePrefix = 'END';
-    responseMessage = t.errors.notRegistered;
-    sessionManager.deleteSession(sessionId);
-    return `${responsePrefix} ${responseMessage}`;
-  }
-  console.log('[Handler] User found:', { phoneNumber: user.phoneNumber, isVerified: user.isVerified });
-
-  if (!user.isVerified) {
-    console.log('[Handler] User is not verified. Ending session.');
-    responsePrefix = 'END';
-    responseMessage = t.errors.notVerified;
-    sessionManager.deleteSession(sessionId);
-    return `${responsePrefix} ${responseMessage}`;
-  }
-
-  if (!session.authenticated) {
-    console.log('[Handler] User not authenticated. Checking PIN.');
-    if (userInput === '') {
-       console.log('[Handler] Waiting for PIN input.');
-    } else {
-      const isPinFormatValid = /^\d{4}$/.test(userInput);
-      if (!isPinFormatValid) {
-        responseMessage = t.errors.invalidPinFormat;
-      } else {
-        const correctPin = MockDatabase.getPin(normalizedPhone);
-        if (correctPin && userInput === correctPin) {
-          console.log('[Handler] PIN correct. Authenticating session.');
-          session.authenticated = true;
-          session.screen = 'HOME';
-          session.pinAttempts = 0;
-          responseMessage = `${t.loginSuccess}\n`;
+  
+  // The logic inside this block should only run if the session is *not* a proxied one,
+  // or if it's the very first request of a proxied session.
+  // After the first proxied request, the session's screen will no longer be 'HOME' or 'PIN'.
+  if (!isProxiedRequest || (isProxiedRequest && session.screen === 'HOME')) {
+      // Handle language selection as the very first step IF NOT a proxied request
+      if (session.screen === 'LANGUAGE_SELECT' && !forwardedLanguage) {
+        if (userInput === '1') {
+          session.language = 'en';
+          session.screen = 'PIN';
+        } else if (userInput === '2') {
+          session.language = 'am';
+          session.screen = 'PIN';
+        } else if (userInput === '') {
+          // First time user is seeing the prompt, do nothing and let the menu text show.
         } else {
-          session.pinAttempts++;
-          console.log(`[Handler] Incorrect PIN. Attempt ${session.pinAttempts}.`);
-          if (session.pinAttempts >= 3) {
-            console.log('[Handler] Too many PIN attempts. Ending session.');
-            responseMessage = t.errors.tooManyPinAttempts;
-            responsePrefix = 'END';
-            sessionManager.deleteSession(sessionId);
+          // If the input is invalid
+          responseMessage = translations.en.errors.invalidLanguageChoice; // Show in both languages
+        }
+        
+        sessionManager.updateSession(sessionId, session);
+        const menuText = getMenuText(session);
+        const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
+        return `${responsePrefix} ${finalMessage}`;
+      }
+
+      const t = translations[session.language];
+
+      const user = MockDatabase.getUserByPhoneNumber(normalizedPhone);
+      if (!user) {
+        console.log(`[Handler] User not found for phone: ${normalizedPhone}. Ending session.`);
+        responsePrefix = 'END';
+        responseMessage = t.errors.notRegistered;
+        sessionManager.deleteSession(sessionId);
+        return `${responsePrefix} ${responseMessage}`;
+      }
+      console.log('[Handler] User found:', { phoneNumber: user.phoneNumber, isVerified: user.isVerified });
+
+      if (!user.isVerified) {
+        console.log('[Handler] User is not verified. Ending session.');
+        responsePrefix = 'END';
+        responseMessage = t.errors.notVerified;
+        sessionManager.deleteSession(sessionId);
+        return `${responsePrefix} ${responseMessage}`;
+      }
+      
+      // If not authenticated (and not a proxied request that just got authenticated)
+      if (!session.authenticated) {
+        console.log('[Handler] User not authenticated. Checking PIN.');
+        if (userInput === '') {
+          console.log('[Handler] Waiting for PIN input.');
+        } else {
+          const isPinFormatValid = /^\d{4}$/.test(userInput);
+          if (!isPinFormatValid) {
+            responseMessage = t.errors.invalidPinFormat;
           } else {
-            responseMessage = t.errors.incorrectPin(session.pinAttempts);
+            const correctPin = MockDatabase.getPin(normalizedPhone);
+            if (correctPin && userInput === correctPin) {
+              console.log('[Handler] PIN correct. Authenticating session.');
+              session.authenticated = true;
+              session.screen = 'HOME';
+              session.pinAttempts = 0;
+              responseMessage = `${t.loginSuccess}\n`;
+            } else {
+              session.pinAttempts++;
+              console.log(`[Handler] Incorrect PIN. Attempt ${session.pinAttempts}.`);
+              if (session.pinAttempts >= 3) {
+                console.log('[Handler] Too many PIN attempts. Ending session.');
+                responseMessage = t.errors.tooManyPinAttempts;
+                responsePrefix = 'END';
+                sessionManager.deleteSession(sessionId);
+              } else {
+                responseMessage = t.errors.incorrectPin(session.pinAttempts);
+              }
+            }
           }
         }
+        if (!session.authenticated && responsePrefix !== 'END') {
+          console.log('[Handler] Staying on PIN screen.');
+          sessionManager.updateSession(sessionId, session);
+          const menuText = getMenuText(session);
+          return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
+        }
       }
-    }
-    if (!session.authenticated && responsePrefix !== 'END') {
-       console.log('[Handler] Staying on PIN screen.');
-       sessionManager.updateSession(sessionId, session);
-       const menuText = getMenuText(session);
-       return `${responsePrefix} ${responseMessage ? responseMessage + '\n' : ''}${menuText}`;
-    }
   }
 
+
   let nextSession: SessionData = { ...session };
+  const t = translations[session.language];
   console.log(`[Handler] Processing screen: "${session.screen}" with input: "${userInput}"`);
 
 
@@ -150,7 +158,6 @@ async function processIncomingRequest(
     delete nextSession.loanAmount;
   };
   
-  // This check MUST come before the screen-specific logic
   if (session.screen !== 'HOME' && session.screen !== 'PIN' && session.screen !== 'LANGUAGE_SELECT') {
     if (userInput === '0') {
       goHome();
@@ -169,7 +176,6 @@ async function processIncomingRequest(
         case 'REPAY_ENTER_AMOUNT':
           nextSession.screen = 'REPAY_SELECT_LOAN';
           break;
-        // For these screens, "Back" is equivalent to "Home"
         case 'CHOOSE_PROVIDER':
         case 'LOAN_STATUS':
         case 'REPAY_SELECT_LOAN':
@@ -180,20 +186,11 @@ async function processIncomingRequest(
     }
   }
 
-  // If the user used navigation (0 or 99), the screen has already changed.
-  // We only run the screen logic if the screen has NOT changed.
   if (nextSession.screen === session.screen) {
     try {
     switch (session.screen) {
       case 'LANGUAGE_SELECT':
-        // This case is now fully handled at the top of the function.
-        // If we reach here on this screen, something is wrong, go to PIN screen to be safe.
-        nextSession.screen = 'PIN';
-        break;
       case 'PIN':
-        // This case is also mostly handled above.
-        // If we reach here, it means authentication was successful in this very request.
-        // The correct next screen ('HOME') is already set.
         if (session.authenticated) {
           console.log('[Handler] PIN screen logic after successful auth. Moving to HOME.');
           nextSession.screen = 'HOME';
@@ -202,15 +199,18 @@ async function processIncomingRequest(
 
       case 'HOME':
         // If this was a proxied request, the userInput is the parent's choice
-        const homeInput = userInput;
-
         // Map parent's choice "3" (Microloan) to child's choice "1" (Apply for Loan)
-        const effectiveInput = (forwardedPin && homeInput === '3') ? '1' : homeInput;
-        console.log(`[Handler] HOME selection: "${homeInput}", effective selection: "${effectiveInput}"`);
+        const effectiveInput = (isProxiedRequest && userInput === '3') ? '1' : userInput;
+        console.log(`[Handler] HOME selection: "${userInput}", effective selection: "${effectiveInput}"`);
 
         switch (effectiveInput) {
           case '1':
             console.log('[Handler] Starting loan application flow.');
+            const t = translations[session.language];
+            // Add login success message if it's a proxied request jumping straight here
+            if (isProxiedRequest && userInput === '3') {
+                responseMessage = `${t.loginSuccess}\n`;
+            }
             nextSession.screen = 'CHOOSE_PROVIDER';
             nextSession.providers = await getProviders();
             console.log('[Handler] Fetched providers:', nextSession.providers);
@@ -242,11 +242,9 @@ async function processIncomingRequest(
             sessionManager.deleteSession(sessionId);
             break;
           default:
-            // Avoid showing "Invalid choice" on the same screen as "Login successful"
-            if (responseMessage.includes(t.loginSuccess)) {
-               break;
+            if (!responseMessage.includes(t.loginSuccess)) {
+               responseMessage = t.errors.invalidChoice;
             }
-            responseMessage = t.errors.invalidChoice;
             break;
         }
         console.log(`[Handler] Next screen after HOME: "${nextSession.screen}"`);
@@ -437,13 +435,11 @@ async function processIncomingRequest(
     console.log('[Handler] Session ended.');
   }
   
-  // Do not show menu text if the session is ending.
   if (responsePrefix === 'END') {
     return `${responsePrefix} ${responseMessage}`;
   }
 
   const menuText = getMenuText(nextSession);
-  // Prepend the response message only if it's not empty
   const finalMessage = `${responseMessage}${responseMessage ? '\n' : ''}${menuText}`;
   
   return `${responsePrefix} ${finalMessage}`;
@@ -458,3 +454,5 @@ export async function processUssdRequest(
 ): Promise<string> {
     return await processIncomingRequest(sessionId, phoneNumber, text, forwardedPin, forwardedLanguage)
 }
+
+    
