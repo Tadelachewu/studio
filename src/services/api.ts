@@ -1,6 +1,6 @@
 import { type Provider, type Product } from '@/lib/types';
 
-const BASE_URL = process.env.API_BASE_URL || 'https://breezy-falcons-know.loca.lt';
+const BASE_URL = process.env.API_BASE_URL || 'https://fifty-words-brake.loca.lt';
 
 async function fetchFromApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
   try {
