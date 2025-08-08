@@ -53,6 +53,7 @@ async function processProxiedRequest(
     } else {
       // If the forwarded PIN is wrong, end the session.
       // The user must restart from the parent app.
+      sessionManager.deleteSession(sessionId);
       return `END ${t.errors.incorrectPin(1).split(':')[0]}`;
     }
     
@@ -144,9 +145,8 @@ async function processProxiedRequest(
     try {
       switch (session.screen) {
         case 'HOME':
-          // The `userInput` is the most recent selection from the user.
-          // In the case of a handoff, the first time this screen is shown, there is no real input yet.
-          const effectiveUserInput = (forwardedPin && session.screen === 'HOME') ? '' : userInput;
+          // This logic now correctly handles input right after a handoff.
+          const effectiveUserInput = userInput;
           switch (effectiveUserInput) {
             case '1': // Apply for Loan
               const existingLoans = MockDatabase.getLoans(normalizedPhone);
@@ -165,7 +165,7 @@ async function processProxiedRequest(
               break;
             case '2': // Check Loan Status
               nextSession.screen = 'LOAN_STATUS';
-              nextSession.loanStatusPage = 0;
+              nextSession.loanStatusPage = 0; // Explicitly initialize page number
               break;
             case '3': // Repay Loan
               nextSession.screen = 'REPAY_SELECT_LOAN';
@@ -185,7 +185,8 @@ async function processProxiedRequest(
               break;
             default:
               // Only show invalid choice if there was an actual input
-              if (effectiveUserInput) {
+              // And we weren't just showing the menu after a handoff
+              if (effectiveUserInput && !(forwardedPin && text.split('*').length <= 3)) {
                 responseMessage = t.errors.invalidChoice;
               }
               break;
